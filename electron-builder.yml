@@ -3,7 +3,9 @@ productName: Bolo AI
 files:
   - dist/**/*
   - app/renderer/**/*
+  - app/preload/**/*
   - app/db/**/*
+  - assets/**/*
   - package.json
 mac:
   category: public.app-category.productivity
@@ -12,5 +14,6 @@ mac:
     - dmg
     - zip
   hardenedRuntime: false
+  identity: null
 directories:
   output: release

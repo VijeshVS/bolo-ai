@@ -74,9 +74,9 @@ function createTray(): void {
   const trayIcon = nativeImage.createFromPath(getTrayIconPath());
   const resizedIcon = trayIcon.resize({ width: 22, height: 22 });
   tray = new Tray(resizedIcon);
-  if (resizedIcon.isEmpty()) {
-    tray.setTitle("Bolo");
-  }
+  
+  // Always set title as fallback to ensure menu bar item is visible
+  tray.setTitle("◉");
   tray.setToolTip("Bolo AI");
 
   const contextMenu = Menu.buildFromTemplate([
