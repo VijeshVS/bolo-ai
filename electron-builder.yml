@@ -1,0 +1,16 @@
+appId: com.boloai.desktop
+productName: Bolo AI
+files:
+  - dist/**/*
+  - app/renderer/**/*
+  - app/db/**/*
+  - package.json
+mac:
+  category: public.app-category.productivity
+  icon: assets/icon.png
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: false
+directories:
+  output: release
