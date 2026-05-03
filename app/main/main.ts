@@ -74,21 +74,19 @@ function createTray(): void {
   const trayIcon = nativeImage.createFromPath(getTrayIconPath());
   const resizedIcon = trayIcon.resize({ width: 22, height: 22 });
   tray = new Tray(resizedIcon);
-  
-  // Always set title as fallback to ensure menu bar item is visible
-  tray.setTitle("◉");
   tray.setToolTip("Bolo AI");
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Show/Hide Bolo AI",
+      label: "Home",
       click: () => {
         toggleMainWindow();
       }
     },
     { type: "separator" },
     {
-      label: "Quit",
+      label: "Quit Bolo AI",
+      accelerator: "CmdOrCtrl+Q",
       click: () => {
         isQuitting = true;
         app.quit();

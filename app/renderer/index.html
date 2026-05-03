@@ -5,28 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bolo AI</title>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+
       :root {
-        --bg: #fbf7ef;
-        --card: #fff9ef;
-        --ink: #14213d;
-        --accent: #f77f00;
-        --accent-soft: #fcbf49;
-        --muted: #4f5d75;
+        --bg: #f6f2ea;
+        --bg-alt: #f1ece2;
+        --card: #ffffff;
+        --card-muted: #faf7f1;
+        --ink: #201c18;
+        --ink-soft: #4b443c;
+        --accent: #f2a04b;
+        --accent-strong: #d57923;
+        --muted: #6b6258;
+        --border: #e7e0d3;
         --danger: #b00020;
+        --shadow: 0 10px 30px rgba(32, 28, 24, 0.08);
       }
 
       * { box-sizing: border-box; }
 
       body {
         margin: 0;
-        font-family: "Avenir Next", "Segoe UI", sans-serif;
-        background: radial-gradient(circle at 0% 0%, #ffe0b2 0, var(--bg) 38%),
-          radial-gradient(circle at 100% 100%, #e0f2f1 0, var(--bg) 45%);
+        font-family: "Plus Jakarta Sans", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at 10% 0%, #efe6d7 0, transparent 42%),
+          radial-gradient(circle at 100% 10%, #f7efe0 0, transparent 45%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-alt) 100%);
         color: var(--ink);
       }
 
       .app {
-        padding: 22px;
+        padding: 24px;
         min-height: 100vh;
         display: grid;
         gap: 16px;
@@ -35,8 +44,10 @@
 
       h1 {
         margin: 0;
-        letter-spacing: 0.02em;
-        font-size: 1.9rem;
+        letter-spacing: 0.01em;
+        font-size: 2rem;
+        font-weight: 600;
+        font-family: "Fraunces", "Plus Jakarta Sans", serif;
       }
 
       .subtitle {
@@ -46,9 +57,10 @@
 
       .panel {
         background: var(--card);
-        border: 2px solid #f0dfc3;
-        border-radius: 16px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
         padding: 16px;
+        box-shadow: var(--shadow);
       }
 
       .status {
@@ -62,34 +74,43 @@
       .button-row {
         display: flex;
         gap: 10px;
+        flex-wrap: wrap;
       }
 
       button {
-        border: none;
-        border-radius: 10px;
+        border: 1px solid #2b2621;
+        border-radius: 12px;
         padding: 10px 14px;
         font-size: 0.95rem;
         font-weight: 700;
-        background: var(--ink);
-        color: white;
+        background: #2b2621;
+        color: #fffaf3;
         cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(32, 28, 24, 0.12);
       }
 
       button.primary {
-        background: linear-gradient(125deg, var(--accent), var(--accent-soft));
-        color: #151515;
+        border: 1px solid #f4b46a;
+        background: linear-gradient(135deg, #f7b86a, var(--accent));
+        color: #241b12;
       }
 
       .mono {
         white-space: pre-wrap;
         font-family: Menlo, Monaco, Consolas, monospace;
         font-size: 0.83rem;
-        background: #faf3e5;
-        border: 1px solid #efdebf;
-        border-radius: 8px;
+        background: var(--card-muted);
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 10px;
         max-height: 280px;
         overflow: auto;
+        color: var(--ink-soft);
       }
 
       .hint {
@@ -105,11 +126,12 @@
       }
 
       .stat-card {
-        background: rgba(247, 127, 0, 0.05);
-        border: 1px solid var(--accent-soft);
-        border-radius: 12px;
+        background: linear-gradient(180deg, #fffefb 0%, #f4f1eb 100%);
+        border: 1px solid #e3ddd2;
+        border-radius: 14px;
         padding: 12px;
         text-align: center;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
       }
 
       .stat-label {
@@ -124,7 +146,7 @@
         margin: 0;
         font-size: 2rem;
         font-weight: 700;
-        color: var(--accent);
+        color: var(--accent-strong);
       }
 
       .history-list {
@@ -136,9 +158,9 @@
       }
 
       .history-item {
-        background: rgba(247, 127, 0, 0.02);
-        border: 1px solid rgba(247, 127, 0, 0.15);
-        border-radius: 8px;
+        background: #fffdf8;
+        border: 1px solid #f0e2cf;
+        border-radius: 12px;
         padding: 10px;
         font-size: 0.85rem;
       }
@@ -151,10 +173,10 @@
 
       .history-intent {
         display: inline-block;
-        background: var(--accent);
-        color: white;
-        padding: 2px 6px;
-        border-radius: 4px;
+        background: #2b2621;
+        color: #fffaf3;
+        padding: 2px 8px;
+        border-radius: 999px;
         font-size: 0.7rem;
         margin-bottom: 4px;
       }
@@ -173,7 +195,8 @@
         top: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
+        background-color: rgba(32, 28, 24, 0.4);
+        backdrop-filter: blur(2px);
       }
 
       .modal.visible {
@@ -184,14 +207,14 @@
 
       .modal-content {
         background: var(--card);
-        border: 2px solid #f0dfc3;
-        border-radius: 16px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
         padding: 24px;
         width: 75vw;
         max-width: 75vw;
         max-height: 90vh;
         overflow-y: auto;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 18px 40px rgba(32, 28, 24, 0.18);
       }
 
       .modal-header {
@@ -239,10 +262,10 @@
       .settings-group input {
         width: 100%;
         padding: 12px;
-        border: 1px solid #d0c5b0;
-        border-radius: 8px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
         font-size: 0.95rem;
-        background: white;
+        background: #fbf8f2;
         color: var(--ink);
         margin-bottom: 8px;
       }
@@ -251,7 +274,7 @@
       .settings-group input:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 2px rgba(247, 127, 0, 0.1);
+        box-shadow: 0 0 0 2px rgba(242, 160, 75, 0.2);
       }
 
       .settings-hint {
@@ -272,11 +295,12 @@
       }
 
       .modal-actions button.secondary {
-        background: var(--muted);
+        background: #5b5248;
+        border-color: #5b5248;
       }
 
       .settings-section {
-        border-top: 1px solid #f0dfc3;
+        border-top: 1px solid var(--border);
         padding-top: 20px;
         margin-bottom: 20px;
       }
@@ -289,17 +313,17 @@
 
       .settings-section h3 {
         margin: 0 0 16px 0;
-        font-size: 1rem;
+        font-size: 0.95rem;
         color: var(--muted);
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.08em;
       }
 
       .field-info {
-        background: rgba(247, 127, 0, 0.05);
+        background: #fff2e4;
         border-left: 3px solid var(--accent);
         padding: 10px 12px;
-        border-radius: 4px;
+        border-radius: 6px;
         margin-top: 8px;
         font-size: 0.85rem;
         color: var(--ink);
