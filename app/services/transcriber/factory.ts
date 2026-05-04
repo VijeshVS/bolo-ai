@@ -3,6 +3,7 @@ import { getTranscriberType } from "./index";
 import { OpenAITranscriber } from "./openai";
 import { GoogleTranscriber } from "./google";
 import type { TranscriberConfig } from "../settingsService";
+import { WhisperTranscriber } from "./whisper";
 
 export class TranscriberFactory {
   static create(config?: TranscriberConfig): Transcriber {
@@ -27,6 +28,8 @@ export class TranscriberFactory {
           return new GroqTranscriber(config.groq.apiKey, config.groq.model);
         }
         return new GroqTranscriber();
+      case "whisper":
+        return new WhisperTranscriber();
       default:
         throw new Error(`Unsupported transcriber type: ${type}`);
     }

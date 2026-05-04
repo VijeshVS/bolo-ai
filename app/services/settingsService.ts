@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 
 export interface TranscriberConfig {
-  type: "openai" | "google" | "groq";
+  type: "openai" | "google" | "groq" | "whisper";
   openai?: {
     apiKey: string;
     model: string;
@@ -15,6 +15,9 @@ export interface TranscriberConfig {
   groq?: {
     apiKey: string;
     model: string;
+  };
+  whisper?: {
+    
   };
 }
 

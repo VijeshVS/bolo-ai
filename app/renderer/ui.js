@@ -407,6 +407,13 @@ const TRANSCRIBER_PROVIDERS = {
       { value: "whisper-large-v3", label: "whisper-large-v3 (20 req/min - free)" },
       { value: "whisper-large-v3-turbo", label: "whisper-large-v3-turbo (20 req/min - free)" }
     ]
+  },
+  whisper: {
+    label: "Whisper (Local)",
+    credentials: [],
+    models: [
+      { value: "whisper", label: "whisper-local" }
+    ]
   }
 };
 
@@ -556,7 +563,8 @@ async function saveSettings() {
       type: transcriberType,
       openai: existingSettings.transcriber.openai || { apiKey: "", model: "" },
       google: existingSettings.transcriber.google || { projectId: "", credentialsPath: "" },
-      groq: existingSettings.transcriber.groq || { apiKey: "", model: "" }
+      groq: existingSettings.transcriber.groq || { apiKey: "", model: "" },
+      whisper: existingSettings.transcriber.whisper || {}
     };
 
     if (!transcriberConfig[transcriberType]) {
