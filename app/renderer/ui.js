@@ -8,6 +8,7 @@ const totalTokensEl = document.getElementById("totalTokens");
 const totalRecordingsEl = document.getElementById("totalRecordings");
 const totalCostEl = document.getElementById("costAmount");
 const recentHistoryEl = document.getElementById("recentHistory");
+const windowSurface = document.getElementById("windowSurface");
 
 let mediaRecorder = null;
 let mediaStream = null;
@@ -16,6 +17,7 @@ let silenceInterval = null;
 let audioContext = null;
 let analyser = null;
 let isRecording = false;
+let levelInterval = null;
 
 function setStatus(message, kind = "normal") {
   statusEl.textContent = message;
@@ -91,6 +93,162 @@ function stopSilenceDetection() {
   analyser = null;
 }
 
+// ============ FLOATING OVERLAY MORPH ============
+
+/*
+ * The surface's shape, veil and content fade are computed from the window's
+ * current height rather than driven by CSS transitions. A transition started
+ * while the window is still hidden never runs, which would leave the expanded
+ * app stuck in the pill's shape. Deriving them from the height keeps every
+ * visual property in step with the main-process bounds animation.
+ */
+const MORPH_APP_RADIUS = 20;
+const MORPH_PILL_EXTRA_RADIUS = -2;
+const MORPH_RADIUS_FALLOFF = 45;
+const MORPH_VEIL_SPAN = 120;
+const MORPH_CONTENT_START = 150;
+const MORPH_CONTENT_SPAN = 110;
+const MORPH_CONTENT_MIN_SCALE = 0.96;
+
+let morphing = false;
+let morphPillHeight = 78;
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function smoothstep(value) {
+  const t = clamp01(value);
+  return t * t * (3 - 2 * t);
+}
+
+function applyMorphFrame(height) {
+  const grown = height - morphPillHeight;
+
+  // The pill look is held until the window is genuinely app-sized, so the
+  // collapse passes through a dark rounded frame instead of showing cropped
+  // app content at window sizes that cannot display it.
+  const radius =
+    MORPH_APP_RADIUS + MORPH_PILL_EXTRA_RADIUS * Math.exp(-grown / MORPH_RADIUS_FALLOFF);
+  const veil = 1 - smoothstep(grown / MORPH_VEIL_SPAN);
+  const content = smoothstep((height - MORPH_CONTENT_START) / MORPH_CONTENT_SPAN);
+
+  windowSurface.style.borderRadius = `${radius.toFixed(2)}px`;
+  windowSurface.style.setProperty("--veil", veil.toFixed(3));
+  windowSurface.style.setProperty("--content-opacity", content.toFixed(3));
+  windowSurface.style.setProperty(
+    "--content-scale",
+    (MORPH_CONTENT_MIN_SCALE + (1 - MORPH_CONTENT_MIN_SCALE) * content).toFixed(3)
+  );
+}
+
+function releaseMorphFrame() {
+  windowSurface.style.removeProperty("border-radius");
+  windowSurface.style.removeProperty("--veil");
+  windowSurface.style.removeProperty("--content-opacity");
+  windowSurface.style.removeProperty("--content-scale");
+}
+
+window.addEventListener("resize", () => {
+  if (morphing) {
+    applyMorphFrame(window.innerHeight);
+  }
+});
+
+window.boloApi.onMorphExpand((payload) => {
+  morphing = true;
+  morphPillHeight = payload.pillHeight;
+  // Pinned to the pill height: the window has not been resized yet, and it
+  // must already be pill-shaped the instant it becomes visible.
+  applyMorphFrame(morphPillHeight);
+  window.boloApi.sendMorphReady();
+});
+
+window.boloApi.onMorphCollapse((payload) => {
+  morphing = true;
+  applyMorphFrame(window.innerHeight);
+});
+
+window.boloApi.onMorphSettled(() => {
+  morphing = false;
+  releaseMorphFrame();
+});
+
+// ============ WINDOW CONTROLS ============
+
+// The window is transparent so it can morph in and out of the floating
+// capsule, which means macOS never draws native traffic lights. These drive the
+// app's own macOS-styled controls instead.
+document.getElementById("windowClose").addEventListener("click", () => {
+  window.boloApi.windowAction("close");
+});
+
+document.getElementById("windowMinimize").addEventListener("click", () => {
+  window.boloApi.windowAction("minimize");
+});
+
+document.getElementById("windowZoom").addEventListener("click", () => {
+  window.boloApi.windowAction("zoom");
+});
+
+// ============ AUDIO LEVEL METER ============
+
+const LEVEL_SAMPLE_INTERVAL_MS = 50;
+const LEVEL_NOISE_FLOOR = 0.008;
+const LEVEL_RANGE = 0.22;
+
+function startLevelMeter() {
+  if (!mediaStream || audioContext) {
+    return;
+  }
+
+  audioContext = new AudioContext();
+  const source = audioContext.createMediaStreamSource(mediaStream);
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 1024;
+  source.connect(analyser);
+
+  // Announce the live state immediately, before any audio has arrived, so the
+  // capsule comes alive the moment recording starts rather than on first sound.
+  window.boloApi.sendAudioLevel(0, true);
+
+  const dataArray = new Float32Array(analyser.fftSize);
+  let lastSentAt = 0;
+
+  levelInterval = setInterval(() => {
+    if (!analyser) {
+      return;
+    }
+
+    analyser.getFloatTimeDomainData(dataArray);
+
+    let sumSquares = 0;
+    for (let i = 0; i < dataArray.length; i += 1) {
+      sumSquares += dataArray[i] * dataArray[i];
+    }
+
+    const rms = Math.sqrt(sumSquares / dataArray.length);
+    const level = Math.min(1, Math.max(0, (rms - LEVEL_NOISE_FLOOR) / LEVEL_RANGE));
+
+    const now = Date.now();
+    if (now - lastSentAt < LEVEL_SAMPLE_INTERVAL_MS) {
+      return;
+    }
+
+    lastSentAt = now;
+    window.boloApi.sendAudioLevel(level, true);
+  }, LEVEL_SAMPLE_INTERVAL_MS);
+}
+
+function stopLevelMeter() {
+  if (levelInterval) {
+    clearInterval(levelInterval);
+    levelInterval = null;
+  }
+
+  window.boloApi.sendAudioLevel(0, false);
+}
+
 async function refreshAnalytics() {
   try {
     const analytics = await window.boloApi.getHistoryAnalytics();
@@ -149,6 +307,7 @@ async function startRecording() {
     }
 
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    startLevelMeter();
 
     const mimeType = preferredMimeType();
     mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
@@ -198,6 +357,7 @@ async function stopRecording(reason) {
     return;
   }
 
+  stopLevelMeter();
   stopSilenceDetection();
 
   if (mediaRecorder && mediaRecorder.state !== "inactive") {

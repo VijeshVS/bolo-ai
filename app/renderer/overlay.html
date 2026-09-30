@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bolo AI</title>
+    <style>
+      :root {
+        --overlay-width: 124px;
+        --overlay-height: 48px;
+        --pill-width: 112px;
+        --pill-height: 36px;
+      }
+
+      * {
+        box-sizing: border-box;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      html,
+      body {
+        width: var(--overlay-width);
+        height: var(--overlay-height);
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      .pill {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--pill-width);
+        height: var(--pill-height);
+        border-radius: 999px;
+        /* No outer box-shadow: it would be clipped by the window edge and
+           composite as a black halo in the capsule's corners. */
+        background: rgba(18, 18, 21, 0.62);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        cursor: grab;
+        overflow: hidden;
+        transition: background 220ms ease;
+      }
+
+      .pill.live {
+        background: rgba(18, 18, 21, 0.9);
+      }
+
+      .pill.dragging {
+        cursor: grabbing;
+      }
+
+      .pill canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="pill" id="pill">
+      <canvas id="waveform" width="112" height="36"></canvas>
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>

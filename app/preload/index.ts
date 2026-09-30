@@ -9,6 +9,16 @@ export interface PermissionStatus {
   accessibility: boolean;
 }
 
+export interface MorphPayload {
+  /** Height of the floating overlay, i.e. the app window's collapsed frame. */
+  pillHeight: number;
+}
+
+export interface OverlayLevelPayload {
+  level: number;
+  active: boolean;
+}
+
 const boloApi = {
   checkPermissions: (options?: { requestMicrophone?: boolean; promptAccessibility?: boolean }): Promise<PermissionStatus> =>
     ipcRenderer.invoke("permissions:check", options),
@@ -49,7 +59,59 @@ const boloApi = {
     ipcRenderer.invoke("settings:get"),
 
   updateSettings: (settings: AppSettings): Promise<AppSettings> =>
-    ipcRenderer.invoke("settings:update", settings)
+    ipcRenderer.invoke("settings:update", settings),
+
+  sendAudioLevel: (level: number, active: boolean): void => {
+    ipcRenderer.send("overlay:audio-level", { level, active });
+  },
+
+  onMorphExpand: (handler: (payload: MorphPayload) => void): (() => void) => {
+    const listener = (_event: unknown, payload: MorphPayload) => handler(payload);
+    ipcRenderer.on("ui:morph-expand", listener);
+    return () => ipcRenderer.off("ui:morph-expand", listener);
+  },
+
+  onMorphCollapse: (handler: (payload: MorphPayload) => void): (() => void) => {
+    const listener = (_event: unknown, payload: MorphPayload) => handler(payload);
+    ipcRenderer.on("ui:morph-collapse", listener);
+    return () => ipcRenderer.off("ui:morph-collapse", listener);
+  },
+
+  onMorphSettled: (handler: () => void): (() => void) => {
+    const listener = () => handler();
+    ipcRenderer.on("ui:morph-settled", listener);
+    return () => ipcRenderer.off("ui:morph-settled", listener);
+  },
+
+  sendMorphReady: (): void => {
+    ipcRenderer.send("ui:morph-ready");
+  },
+
+  windowAction: (action: "close" | "minimize" | "zoom"): void => {
+    ipcRenderer.send("ui:window-action", action);
+  },
+
+  overlayDragBegin: (): void => {
+    ipcRenderer.send("overlay:drag-begin");
+  },
+
+  overlayDragMove: (dx: number, dy: number): void => {
+    ipcRenderer.send("overlay:drag-move", { dx, dy });
+  },
+
+  overlayDragEnd: (travel: number): void => {
+    ipcRenderer.send("overlay:drag-end", { travel });
+  },
+
+  overlayContextMenuRequested: (x: number, y: number): void => {
+    ipcRenderer.send("overlay:context-menu", { x, y });
+  },
+
+  onOverlayLevel: (handler: (payload: OverlayLevelPayload) => void): (() => void) => {
+    const listener = (_event: unknown, payload: OverlayLevelPayload) => handler(payload);
+    ipcRenderer.on("overlay:level", listener);
+    return () => ipcRenderer.off("overlay:level", listener);
+  }
 };
 
 contextBridge.exposeInMainWorld("boloApi", boloApi);
