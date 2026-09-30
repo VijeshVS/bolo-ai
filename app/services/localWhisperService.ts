@@ -5,11 +5,16 @@ import path from "node:path";
 import { app } from "electron";
 import { logger } from "../utils/logger";
 
-// whisper-tiny is the fastest ggml model and, per the request, the one that gets
-// loaded into memory when local transcription is switched on.
-const MODEL_NAME = "tiny";
-const MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
-const MODEL_FILE = "ggml-tiny.bin";
+// One rung above tiny: markedly better on names and accents while still
+// running well faster than realtime. This is the model held in memory while
+// local transcription is switched on.
+const MODEL_NAME = "base";
+const MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+const MODEL_FILE = "ggml-base.bin";
+
+// A truncated download would load as a corrupt model, so require a plausible
+// size before treating the cached file as usable.
+const MODEL_MIN_BYTES = 100 * 1024 * 1024;
 
 export type LocalWhisperStatus = "off" | "downloading" | "loading" | "ready" | "error";
 
@@ -60,9 +65,8 @@ function modelPath(): string {
 }
 
 function isModelDownloaded(): boolean {
-  // A truncated download would load as a corrupt model, so require a plausible size.
   try {
-    return existsSync(modelPath()) && statSync(modelPath()).size > 50 * 1024 * 1024;
+    return existsSync(modelPath()) && statSync(modelPath()).size >= MODEL_MIN_BYTES;
   } catch {
     return false;
   }
@@ -103,7 +107,7 @@ async function ensureModel(): Promise<string> {
     }
   });
 
-  // Streamed to disk so a 74 MB model is never held in memory.
+  // Streamed to disk so the model is never held in memory while downloading.
   await streamPipeline(
     Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
     counter,

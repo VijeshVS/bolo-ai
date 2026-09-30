@@ -867,7 +867,7 @@ function renderLocalWhisperState(state) {
     label = `Downloading the model \u2026 ${state.downloadProgress}%`;
   }
   if (state.loaded) {
-    label = `whisper-tiny in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
+    label = `whisper-${state.model} in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
   }
   localWhisperStatusText.textContent =
     state.loaded || state.status === "error" ? label : state.message || label;
