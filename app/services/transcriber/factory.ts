@@ -3,10 +3,23 @@ import { getTranscriberType } from "./index";
 import { OpenAITranscriber } from "./openai";
 import { GoogleTranscriber } from "./google";
 import type { TranscriberConfig } from "../settingsService";
-import { WhisperTranscriber } from "./whisper";
+import { WhisperCppTranscriber } from "./whisper";
+import type { LocalWhisperService } from "../localWhisperService";
 
 export class TranscriberFactory {
+  /** The in-process local transcriber needs the owner of the loaded model. */
+  static local: LocalWhisperService | null = null;
+
   static create(config?: TranscriberConfig): Transcriber {
+    // Local transcription takes over completely: the selected external provider
+    // and its credentials are ignored while it is enabled.
+    if (config?.localWhisperEnabled) {
+      if (!TranscriberFactory.local) {
+        throw new Error("Local transcription is enabled but the model service is unavailable.");
+      }
+      return new WhisperCppTranscriber(TranscriberFactory.local);
+    }
+
     const type = config?.type || getTranscriberType();
 
     switch (type) {
@@ -29,7 +42,12 @@ export class TranscriberFactory {
         }
         return new GroqTranscriber();
       case "whisper":
-        return new WhisperTranscriber();
+        // Only reachable when local transcription is off; whisper.cpp needs the
+        // in-process service, so point at the setting rather than silently
+        // falling back to a hosted provider.
+        throw new Error(
+          "Whisper is available as the in-app local transcriber. Enable it under Transcription."
+        );
       default:
         throw new Error(`Unsupported transcriber type: ${type}`);
     }

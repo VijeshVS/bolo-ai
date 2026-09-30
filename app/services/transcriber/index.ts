@@ -6,6 +6,11 @@ export interface TranscriptionResult {
 
 export interface Transcriber {
   transcribe(filePath: string, prompt?: string): Promise<TranscriptionResult>;
+  /**
+   * Mono 16 kHz PCM. Only the in-process whisper.cpp transcriber needs this;
+   * every other transcriber reads `filePath` and ignores it.
+   */
+  transcribePcm?(pcm: Float32Array): Promise<TranscriptionResult>;
 }
 
 export type TranscriberType = "openai" | "google" | "groq" | "whisper";

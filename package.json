@@ -22,6 +22,7 @@
     "dotenv": "^17.2.3",
     "electron-store": "^11.0.2",
     "openai": "^6.32.0",
+    "smart-whisper": "^0.8.1",
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {

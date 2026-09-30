@@ -3,11 +3,13 @@ import type { PipelineResult } from "../services/pipelineService";
 import type { SnippetMap } from "../services/snippetService";
 import type { HistoryAnalytics } from "../services/historyService";
 import type { AppSettings } from "../services/settingsService";
+import type { LocalWhisperState } from "../services/localWhisperService";
 
 export interface PermissionStatus {
   microphone: string;
   accessibility: boolean;
 }
+
 
 export interface MorphPayload {
   /** Height of the floating overlay, i.e. the app window's collapsed frame. */
@@ -23,10 +25,17 @@ const boloApi = {
   checkPermissions: (options?: { requestMicrophone?: boolean; promptAccessibility?: boolean }): Promise<PermissionStatus> =>
     ipcRenderer.invoke("permissions:check", options),
 
-  processAudio: (audioData: ArrayBuffer, mimeType: string): Promise<PipelineResult> =>
+  processAudio: (
+    audioData: ArrayBuffer,
+    mimeType: string,
+    pcm?: Float32Array
+  ): Promise<PipelineResult> =>
     ipcRenderer.invoke("pipeline:process-audio", {
       audioData: new Uint8Array(audioData),
-      mimeType
+      mimeType,
+      // Only supplied when local transcription is on; whisper.cpp needs
+      // decoded 16 kHz mono samples rather than the encoded blob.
+      pcm: pcm ? Array.from(pcm) : undefined
     }),
 
   onHotkeyStartRecording: (handler: () => void): (() => void) => {
@@ -60,6 +69,15 @@ const boloApi = {
 
   updateSettings: (settings: AppSettings): Promise<AppSettings> =>
     ipcRenderer.invoke("settings:update", settings),
+
+  getLocalWhisperStatus: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:status"),
+
+  enableLocalWhisper: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:enable"),
+
+  disableLocalWhisper: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:disable"),
 
   sendAudioLevel: (level: number, active: boolean): void => {
     ipcRenderer.send("overlay:audio-level", { level, active });

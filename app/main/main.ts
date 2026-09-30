@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, Rectangl
 import path from "node:path";
 import dotenv from "dotenv";
 import { registerHoldHotkey, unregisterHoldHotkey } from "./holdHotkey";
-import { registerIpcHandlers } from "./ipc";
+import { registerIpcHandlers, stopLocalWhisperModel, syncLocalWhisperModel } from "./ipc";
 import {
   createOverlayWindow,
   getOverlayBounds,
@@ -323,6 +323,10 @@ app.whenReady().then(async () => {
   createApplicationMenu();
   openMainWindow();
 
+  // Honour a previously enabled local model as soon as the app starts, so the
+  // model is already resident by the time anything is dictated.
+  void syncLocalWhisperModel();
+
   if (usesOverlay) {
     const overlay = await createOverlayWindow({
       onOpenRequested: () => {
@@ -361,6 +365,7 @@ app.whenReady().then(async () => {
 app.on("before-quit", () => {
   isQuitting = true;
   unregisterHoldHotkey();
+  stopLocalWhisperModel();
 });
 
 app.on("window-all-closed", () => {

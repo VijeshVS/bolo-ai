@@ -193,6 +193,30 @@ document.getElementById("windowZoom").addEventListener("click", () => {
 
 // ============ AUDIO LEVEL METER ============
 
+// whisper.cpp consumes mono 16 kHz PCM, so the recorded blob is decoded and
+// resampled in the renderer where Web Audio already lives.
+const WHISPER_SAMPLE_RATE = 16000;
+
+async function decodeToMono16k(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const decodeContext = new AudioContext();
+
+  try {
+    const decoded = await decodeContext.decodeAudioData(arrayBuffer);
+    const source = decoded;
+    const frames = Math.round((source.duration * WHISPER_SAMPLE_RATE));
+    const offline = new OfflineAudioContext(1, Math.max(1, frames), WHISPER_SAMPLE_RATE);
+    const node = offline.createBufferSource();
+    node.buffer = source;
+    node.connect(offline.destination);
+    node.start();
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0).slice();
+  } finally {
+    void decodeContext.close();
+  }
+}
+
 const LEVEL_SAMPLE_INTERVAL_MS = 50;
 const LEVEL_NOISE_FLOOR = 0.008;
 const LEVEL_RANGE = 0.22;
@@ -266,8 +290,10 @@ async function refreshAnalytics() {
           const dateStr = date.toLocaleDateString();
           return `
             <div class="history-item">
-              <div class="history-timestamp">${dateStr} ${timeStr}</div>
-              <span class="history-intent">${record.intent}</span>
+              <div class="history-meta">
+                <span class="history-intent">${escapeHtml(record.intent)}</span>
+                <span class="history-timestamp">${dateStr} ${timeStr}</span>
+              </div>
               <div class="history-text">${escapeHtml(record.outputText.substring(0, 150))}${record.outputText.length > 150 ? "..." : ""}</div>
             </div>
           `;
@@ -326,9 +352,12 @@ async function startRecording() {
         const blob = new Blob(audioChunks, { type: blobType });
         const arrayBuffer = await blob.arrayBuffer();
 
-        setStatus("Transcribing and formatting...");
+        const useLocal = (await window.boloApi.getSettings()).transcriber.localWhisperEnabled === true;
+        const pcm = useLocal ? await decodeToMono16k(blob) : undefined;
 
-        const result = await window.boloApi.processAudio(arrayBuffer, blobType);
+        setStatus(useLocal ? "Transcribing on this Mac..." : "Transcribing and formatting...");
+
+        const result = await window.boloApi.processAudio(arrayBuffer, blobType, pcm);
         lastOutputEl.textContent = result.outputText || "(empty output)";
         setStatus(`Done. Intent: ${result.intent}`);
         
@@ -454,6 +483,17 @@ const settingsSave = document.getElementById("settingsSave");
 const llmTypeSelect = document.getElementById("llmType");
 const llmModelSelect = document.getElementById("llmModel");
 const llmCredentialsContainer = document.getElementById("llmCredentialsContainer");
+
+const localWhisperToggle = document.getElementById("localWhisperToggle");
+const localWhisperStatus = document.getElementById("localWhisperStatus");
+const localWhisperStatusText = document.getElementById("localWhisperStatusText");
+const externalTranscriber = document.getElementById("externalTranscriber");
+const correctionToggle = document.getElementById("correctionToggle");
+const llmControls = document.getElementById("llmControls");
+
+let localWhisperEnabled = false;
+let localWhisperPoll = null;
+let correctionEnabled = true;
 
 const transcriberTypeSelect = document.getElementById("transcriberType");
 const transcriberModelSelect = document.getElementById("transcriberModel");
@@ -589,7 +629,7 @@ function createCredentialFields(provider, containerElement, providerConfig, curr
   
   providerSpec.credentials.forEach(credSpec => {
     const fieldContainer = document.createElement("div");
-    fieldContainer.className = "settings-group credential-field visible";
+    fieldContainer.className = "settings-group credential-field";
     
     const label = document.createElement("label");
     label.htmlFor = `${containerElement.id}_${credSpec.name}`;
@@ -653,6 +693,7 @@ async function loadSettingsForm() {
     
     // Load LLM settings
     const llmConfig = settings.llm;
+    correctionEnabled = llmConfig.correctionEnabled !== false;
     llmTypeSelect.value = llmConfig.type;
     updateModelOptions(llmConfig.type, LLM_PROVIDERS, llmModelSelect);
     
@@ -664,6 +705,8 @@ async function loadSettingsForm() {
     
     // Load Transcriber settings
     const transcriberConfig = settings.transcriber;
+    localWhisperEnabled = transcriberConfig.localWhisperEnabled === true;
+    void refreshLocalWhisperStatus();
     transcriberTypeSelect.value = transcriberConfig.type;
     updateModelOptions(transcriberConfig.type, TRANSCRIBER_PROVIDERS, transcriberModelSelect);
     
@@ -672,13 +715,17 @@ async function loadSettingsForm() {
     }
     
     createCredentialFields(transcriberConfig.type, transcriberCredentialsContainer, TRANSCRIBER_PROVIDERS, transcriberConfig);
+
+    // Last, so the credential inputs created above are disabled too.
+    renderLocalWhisperToggle();
+    renderCorrectionToggle();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Failed to load settings: ${message}`, "error");
   }
 }
 
-async function saveSettings() {
+async function saveSettings(closeWhenDone = true) {
   try {
     const existingSettings = await window.boloApi.getSettings();
     const llmType = llmTypeSelect.value;
@@ -688,6 +735,7 @@ async function saveSettings() {
     const llmConfig = {
       ...existingSettings.llm,
       type: llmType,
+      correctionEnabled,
       openai: existingSettings.llm.openai || { apiKey: "", model: "" },
       anthropic: existingSettings.llm.anthropic || { apiKey: "", model: "" },
       google: existingSettings.llm.google || { apiKey: "", model: "" },
@@ -721,6 +769,7 @@ async function saveSettings() {
     const transcriberConfig = {
       ...existingSettings.transcriber,
       type: transcriberType,
+      localWhisperEnabled,
       openai: existingSettings.transcriber.openai || { apiKey: "", model: "" },
       google: existingSettings.transcriber.google || { projectId: "", credentialsPath: "" },
       groq: existingSettings.transcriber.groq || { apiKey: "", model: "" },
@@ -755,7 +804,10 @@ async function saveSettings() {
     
     await window.boloApi.updateSettings(finalSettings);
     setStatus("Settings saved successfully!");
-    closeSettings();
+
+    if (closeWhenDone) {
+      closeSettings();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Failed to save settings: ${message}`, "error");
@@ -766,6 +818,118 @@ async function saveSettings() {
 settingsButton.addEventListener("click", openSettings);
 settingsModalClose.addEventListener("click", closeSettings);
 settingsCancel.addEventListener("click", closeSettings);
+// ============ LOCAL WHISPER SERVER ============
+
+const LOCAL_STATUS_LABELS = {
+  off: "No model in memory",
+  downloading: "Downloading the model\u2026",
+  loading: "Loading the model into memory\u2026",
+  ready: "Model loaded in memory",
+  error: "The model could not be loaded"
+};
+
+/** Reflects a switch's own on/off state. */
+function setSwitchState(toggleElement, on) {
+  toggleElement.setAttribute("aria-checked", String(on));
+}
+
+/**
+ * Enables or disables the panel a switch governs. The real `disabled` attribute
+ * is set alongside the visual treatment so the controls leave the tab order and
+ * cannot be focused.
+ */
+function setPanelEnabled(container, enabled) {
+  container.classList.toggle("is-disabled", !enabled);
+  container
+    .querySelectorAll("select, input, button")
+    .forEach((control) => {
+      control.disabled = !enabled;
+    });
+}
+
+function renderLocalWhisperToggle() {
+  setSwitchState(localWhisperToggle, localWhisperEnabled);
+  // The external provider section is unusable while local Whisper owns
+  // transcription, so it reads as unavailable rather than being silently ignored.
+  setPanelEnabled(externalTranscriber, !localWhisperEnabled);
+}
+
+function renderCorrectionToggle() {
+  setSwitchState(correctionToggle, correctionEnabled);
+  setPanelEnabled(llmControls, correctionEnabled);
+}
+
+function renderLocalWhisperState(state) {
+  localWhisperStatus.dataset.state = state.status;
+
+  let label = LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+  if (state.status === "downloading" && state.downloadProgress) {
+    label = `Downloading the model \u2026 ${state.downloadProgress}%`;
+  }
+  if (state.loaded) {
+    label = `whisper-${state.model} in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
+  }
+  // Show the most specific thing available: live progress while downloading,
+  // the real cost while loaded, and the actual reason when something failed.
+  let text;
+  if (state.status === "downloading" && state.downloadProgress) {
+    text = `Downloading the model \u2026 ${state.downloadProgress}%`;
+  } else if (state.loaded) {
+    text = `whisper-${state.model} in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
+  } else {
+    text = state.message || LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+  }
+  localWhisperStatusText.textContent = text;
+
+  // The main process starts the download only after it has replied to the save,
+  // so a read taken straight after the switch still sees "off". Keep polling
+  // whenever the model has not settled rather than only while it looks busy.
+  if (localWhisperPoll) {
+    clearInterval(localWhisperPoll);
+    localWhisperPoll = null;
+  }
+
+  const settled = state.status === "ready" || state.status === "error";
+  const busy = state.status === "downloading" || state.status === "loading";
+  const startingUp = localWhisperEnabled && !settled;
+
+  if (busy || startingUp) {
+    localWhisperPoll = setInterval(() => void refreshLocalWhisperStatus(), 700);
+  }
+}
+
+async function refreshLocalWhisperStatus() {
+  try {
+    renderLocalWhisperState(await window.boloApi.getLocalWhisperStatus());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Failed to read the local model status: ${message}`, "error");
+  }
+}
+
+localWhisperToggle.addEventListener("click", async () => {
+  localWhisperEnabled = !localWhisperEnabled;
+  renderLocalWhisperToggle();
+
+  // Applied immediately rather than waiting for Save, so the model is loaded or
+  // released the moment the switch moves. The dialog stays open so the
+  // resulting status is visible.
+  await saveSettings(false);
+  await refreshLocalWhisperStatus();
+  // Catch the state the main process moves to just after replying.
+  setTimeout(() => void refreshLocalWhisperStatus(), 600);
+});
+
+correctionToggle.addEventListener("click", async () => {
+  correctionEnabled = !correctionEnabled;
+  renderCorrectionToggle();
+
+  // Applied immediately, like the local Whisper switch, and the dialog stays
+  // open.
+  await saveSettings(false);
+});
+
+
 settingsSave.addEventListener("click", () => void saveSettings());
 
 llmTypeSelect.addEventListener("change", () => {

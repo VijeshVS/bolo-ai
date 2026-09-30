@@ -4,6 +4,12 @@ import { promises as fs } from "node:fs";
 
 export interface TranscriberConfig {
   type: "openai" | "google" | "groq" | "whisper";
+  /**
+   * When true, transcription runs inside this app through whisper.cpp and
+   * `type` (plus its credentials) is ignored. The model is loaded into memory
+   * while this is on and released the moment it is turned off.
+   */
+  localWhisperEnabled: boolean;
   openai?: {
     apiKey: string;
     model: string;
@@ -23,6 +29,12 @@ export interface TranscriberConfig {
 
 export interface LLMConfig {
   type: "openai" | "anthropic" | "google" | "xai" | "groq" | "openrouter";
+  /**
+   * When false the transcript is pasted as recognised (after snippet expansion)
+   * with no AI intent detection or reformatting. Cheaper and faster, and no LLM
+   * credentials are required in this mode.
+   */
+  correctionEnabled: boolean;
   openai?: {
     apiKey: string;
     model: string;
@@ -57,6 +69,7 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   transcriber: {
     type: "openai",
+    localWhisperEnabled: false,
     openai: {
       apiKey: "",
       model: "gpt-4o-transcribe"
@@ -64,6 +77,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   llm: {
     type: "openai",
+    correctionEnabled: true,
     openai: {
       apiKey: "",
       model: "gpt-4.1-mini"
