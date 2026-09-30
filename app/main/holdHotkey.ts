@@ -86,10 +86,23 @@ export function registerHoldHotkey(handlers: HoldHotkeyHandlers): void {
 
   uIOhook.on("keydown", keydownHandler);
   uIOhook.on("keyup", keyupHandler);
-  uIOhook.start();
+
+  // start() rejects when the app lacks Accessibility permission. Record the real
+  // outcome so other features can check whether the global hook is usable.
   hookStarted = true;
+  Promise.resolve(uIOhook.start()).catch((error) => {
+    hookStarted = false;
+    logger.warn("Global input hook unavailable; hold hotkey disabled", {
+      error: String(error)
+    });
+  });
 
   logger.info("Trigger hotkey registered", { combo: "Double-tap Option to record, tap Option once to transcribe" });
+}
+
+/** True when the global mouse/keyboard hook is actually running. */
+export function isGlobalHookActive(): boolean {
+  return hookStarted;
 }
 
 export function unregisterHoldHotkey(): void {

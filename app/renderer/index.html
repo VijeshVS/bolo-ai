@@ -20,27 +20,135 @@
         --border: #e7e0d3;
         --danger: #b00020;
         --shadow: 0 10px 30px rgba(32, 28, 24, 0.08);
+        --titlebar-inset: 46px;
       }
 
       * { box-sizing: border-box; }
 
+      html,
       body {
+        height: 100%;
         margin: 0;
+        overflow: hidden;
+        background: transparent;
         font-family: "Plus Jakarta Sans", "Helvetica Neue", sans-serif;
+        color: var(--ink);
+      }
+
+      /* The window itself is transparent, so this surface owns the app's shape,
+         colour and shadow. During the pill morph its shape, veil and content
+         are derived from the current window height by ui.js, which keeps them
+         locked to the main-process bounds animation frame for frame. */
+      .window-surface {
+        --veil: 0;
+        --content-opacity: 1;
+        --content-scale: 1;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 20px;
         background:
           radial-gradient(circle at 10% 0%, #efe6d7 0, transparent 42%),
           radial-gradient(circle at 100% 10%, #f7efe0 0, transparent 45%),
           linear-gradient(180deg, var(--bg) 0%, var(--bg-alt) 100%);
-        color: var(--ink);
+        box-shadow:
+          0 26px 64px rgba(32, 28, 24, 0.24),
+          0 3px 10px rgba(32, 28, 24, 0.14);
+      }
+
+      .window-surface::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        pointer-events: none;
+        background: rgba(14, 14, 17, 0.8);
+        opacity: var(--veil);
       }
 
       .app {
-        padding: 24px;
-        min-height: 100vh;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--titlebar-inset) 24px 24px;
         display: grid;
         gap: 16px;
         align-content: start;
+        opacity: var(--content-opacity);
+        transform: scale(var(--content-scale));
       }
+
+      /* macOS window controls. Electron does not draw native traffic lights on
+         a transparent window, and the transparency is what lets this window
+         morph in and out of the floating capsule, so they are drawn here. The
+         strip is a drag region so the window can still be moved by its title
+         bar, and it fades with the content during a morph. */
+      .titlebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--titlebar-inset);
+        display: flex;
+        align-items: center;
+        padding: 0 18px;
+        z-index: 6;
+        opacity: var(--content-opacity);
+        -webkit-app-region: drag;
+        app-region: drag;
+      }
+
+      .traffic-lights {
+        display: flex;
+        gap: 8px;
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
+      }
+
+      .traffic-lights .traffic-light {
+        position: relative;
+        width: 12px;
+        height: 12px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: #d8d3ca;
+        cursor: default;
+        opacity: 0.85;
+        transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+      }
+
+      .traffic-lights .traffic-light.close { background: #ff5f57; }
+      .traffic-lights .traffic-light.minimize { background: #febc2e; }
+      .traffic-lights .traffic-light.zoom { background: #28c840; }
+
+      .traffic-lights .traffic-light:hover {
+        transform: none;
+        box-shadow: none;
+        opacity: 1;
+      }
+
+      /* Glyphs only on hover, as macOS does. */
+      .traffic-lights .traffic-light::after {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
+        color: rgba(0, 0, 0, 0.62);
+        opacity: 0;
+      }
+
+      .traffic-lights:hover .traffic-light::after { opacity: 1; }
+      .traffic-lights .traffic-light.close::after { content: "\00d7"; font-size: 11px; }
+      .traffic-lights .traffic-light.minimize::after { content: "\2212"; }
+      .traffic-lights .traffic-light.zoom::after { content: "\2039"; font-size: 12px; }
 
       h1 {
         margin: 0;
@@ -331,6 +439,14 @@
     </style>
   </head>
   <body>
+    <div class="window-surface" id="windowSurface">
+    <div class="titlebar">
+      <div class="traffic-lights" role="group" aria-label="Window controls">
+        <button class="traffic-light close" id="windowClose" type="button" aria-label="Close"></button>
+        <button class="traffic-light minimize" id="windowMinimize" type="button" aria-label="Minimize"></button>
+        <button class="traffic-light zoom" id="windowZoom" type="button" aria-label="Full screen"></button>
+      </div>
+    </div>
     <main class="app">
       <header>
         <h1>Bolo AI</h1>
@@ -445,6 +561,7 @@
           <button id="settingsSave" class="primary">Save Settings</button>
         </div>
       </div>
+    </div>
     </div>
 
     <script src="ui.js"></script>
