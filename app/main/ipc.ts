@@ -3,10 +3,15 @@ import path from "node:path";
 import { pasteTextAtCursor } from "./pasteService";
 import { checkPermissions } from "./permissionService";
 import { HistoryService } from "../services/historyService";
+import { LocalWhisperService } from "../services/localWhisperService";
 import { PipelineService } from "../services/pipelineService";
 import { SnippetService } from "../services/snippetService";
 import { SettingsService } from "../services/settingsService";
 import { logger } from "../utils/logger";
+
+// One server process per app, shared by the pipeline and the settings UI.
+const localWhisper = new LocalWhisperService();
+const settingsService = new SettingsService();
 
 function normalizeAudioBytes(input: unknown): Buffer {
   if (Buffer.isBuffer(input)) {
@@ -31,8 +36,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   const snippetService = new SnippetService(storePath, seedPath);
   const historyService = new HistoryService(historyPath);
-  const settingsService = new SettingsService();
-  const pipelineService = new PipelineService(snippetService);
+  const pipelineService = new PipelineService(snippetService, localWhisper);
 
   ipcMain.handle("permissions:check", async (_event, options?: { requestMicrophone?: boolean; promptAccessibility?: boolean }) => {
     return checkPermissions(options);
@@ -85,7 +89,31 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle("settings:update", async (_event, settings) => {
     await settingsService.updateSettings(settings);
+    await syncLocalWhisperServer();
     return settingsService.getSettings();
+  });
+
+  ipcMain.handle("local-whisper:status", async () => localWhisper.getState());
+
+  ipcMain.handle("local-whisper:start", async () => {
+    await localWhisper.start();
+    return localWhisper.getState();
+  });
+
+  ipcMain.handle("local-whisper:stop", async () => {
+    localWhisper.stop();
+    return localWhisper.getState();
+  });
+
+  ipcMain.handle("local-whisper:install", async () => {
+    const result = await localWhisper.installDependencies();
+
+    if (result.ok) {
+      // Installing is pointless unless the server can then actually run.
+      await localWhisper.start();
+    }
+
+    return { ...result, state: localWhisper.getState() };
   });
 
   ipcMain.handle("window:show", async () => {
@@ -98,4 +126,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     mainWindow.show();
     mainWindow.focus();
   });
+}
+
+/**
+ * Starts or stops the local server to match the saved setting. Called on launch
+ * and whenever settings are saved, so the checkbox is the single source of
+ * truth for whether the server runs.
+ */
+export async function syncLocalWhisperServer(): Promise<void> {
+  await settingsService.init();
+  const enabled = settingsService.getSettings().transcriber.localServerEnabled === true;
+
+  if (enabled) {
+    await localWhisper.ensureRunning();
+    return;
+  }
+
+  localWhisper.stop();
+}
+
+export function stopLocalWhisperServer(): void {
+  localWhisper.stop();
 }

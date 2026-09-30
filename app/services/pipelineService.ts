@@ -3,6 +3,7 @@ import { SnippetService } from "./snippetService";
 import { TranscriberFactory } from "./transcriber/factory";
 import { LLMFactory } from "./llm/factory";
 import { SettingsService } from "./settingsService";
+import { LocalWhisperService } from "./localWhisperService";
 import type { IntentLabel } from "./llm/index";
 
 export interface PipelineResult {
@@ -17,16 +18,31 @@ export interface PipelineResult {
 export class PipelineService {
   private settingsService: SettingsService;
 
-  constructor(private readonly snippetService: SnippetService) {
+  constructor(
+    private readonly snippetService: SnippetService,
+    private readonly localWhisper: LocalWhisperService
+  ) {
     this.settingsService = new SettingsService();
   }
 
   async processAudio(audioBuffer: Buffer, mimeType: string): Promise<PipelineResult> {
     const audioFilePath = await saveAudioBufferToTempFile(audioBuffer, mimeType);
-    
+
     await this.settingsService.init();
     const settings = this.settingsService.getSettings();
-    
+
+    if (settings.transcriber.localServerEnabled) {
+      const ready = await this.localWhisper.ensureRunning();
+
+      if (!ready) {
+        const state = this.localWhisper.getState();
+        await removeTempAudioFile(audioFilePath);
+        throw new Error(
+          state.message || "The local transcription server is not running. Check Settings."
+        );
+      }
+    }
+
     const transcriber = TranscriberFactory.create(settings.transcriber);
     const llmProcessor = LLMFactory.create(settings.llm);
 

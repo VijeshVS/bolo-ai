@@ -3,10 +3,17 @@ import type { PipelineResult } from "../services/pipelineService";
 import type { SnippetMap } from "../services/snippetService";
 import type { HistoryAnalytics } from "../services/historyService";
 import type { AppSettings } from "../services/settingsService";
+import type { LocalWhisperState } from "../services/localWhisperService";
 
 export interface PermissionStatus {
   microphone: string;
   accessibility: boolean;
+}
+
+export interface InstallResult {
+  ok: boolean;
+  message: string;
+  state: LocalWhisperState;
 }
 
 export interface MorphPayload {
@@ -60,6 +67,18 @@ const boloApi = {
 
   updateSettings: (settings: AppSettings): Promise<AppSettings> =>
     ipcRenderer.invoke("settings:update", settings),
+
+  getLocalWhisperStatus: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:status"),
+
+  startLocalWhisper: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:start"),
+
+  stopLocalWhisper: (): Promise<LocalWhisperState> =>
+    ipcRenderer.invoke("local-whisper:stop"),
+
+  installLocalWhisperDeps: (): Promise<InstallResult> =>
+    ipcRenderer.invoke("local-whisper:install"),
 
   sendAudioLevel: (level: number, active: boolean): void => {
     ipcRenderer.send("overlay:audio-level", { level, active });

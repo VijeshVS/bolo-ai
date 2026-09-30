@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, Rectangl
 import path from "node:path";
 import dotenv from "dotenv";
 import { registerHoldHotkey, unregisterHoldHotkey } from "./holdHotkey";
-import { registerIpcHandlers } from "./ipc";
+import { registerIpcHandlers, stopLocalWhisperServer, syncLocalWhisperServer } from "./ipc";
 import {
   createOverlayWindow,
   getOverlayBounds,
@@ -323,6 +323,9 @@ app.whenReady().then(async () => {
   createApplicationMenu();
   openMainWindow();
 
+  // Honour a previously enabled local server as soon as the app starts.
+  void syncLocalWhisperServer();
+
   if (usesOverlay) {
     const overlay = await createOverlayWindow({
       onOpenRequested: () => {
@@ -361,6 +364,7 @@ app.whenReady().then(async () => {
 app.on("before-quit", () => {
   isQuitting = true;
   unregisterHoldHotkey();
+  stopLocalWhisperServer();
 });
 
 app.on("window-all-closed", () => {

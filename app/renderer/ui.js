@@ -266,8 +266,10 @@ async function refreshAnalytics() {
           const dateStr = date.toLocaleDateString();
           return `
             <div class="history-item">
-              <div class="history-timestamp">${dateStr} ${timeStr}</div>
-              <span class="history-intent">${record.intent}</span>
+              <div class="history-meta">
+                <span class="history-intent">${escapeHtml(record.intent)}</span>
+                <span class="history-timestamp">${dateStr} ${timeStr}</span>
+              </div>
               <div class="history-text">${escapeHtml(record.outputText.substring(0, 150))}${record.outputText.length > 150 ? "..." : ""}</div>
             </div>
           `;
@@ -455,6 +457,17 @@ const llmTypeSelect = document.getElementById("llmType");
 const llmModelSelect = document.getElementById("llmModel");
 const llmCredentialsContainer = document.getElementById("llmCredentialsContainer");
 
+const localServerToggle = document.getElementById("localServerToggle");
+const localServerStatus = document.getElementById("localServerStatus");
+const localServerStatusText = document.getElementById("localServerStatusText");
+const localServerActions = document.getElementById("localServerActions");
+const localServerDetail = document.getElementById("localServerDetail");
+const localServerInstall = document.getElementById("localServerInstall");
+const externalTranscriber = document.getElementById("externalTranscriber");
+
+let localServerEnabled = false;
+let localServerPoll = null;
+
 const transcriberTypeSelect = document.getElementById("transcriberType");
 const transcriberModelSelect = document.getElementById("transcriberModel");
 const transcriberCredentialsContainer = document.getElementById("transcriberCredentialsContainer");
@@ -589,7 +602,7 @@ function createCredentialFields(provider, containerElement, providerConfig, curr
   
   providerSpec.credentials.forEach(credSpec => {
     const fieldContainer = document.createElement("div");
-    fieldContainer.className = "settings-group credential-field visible";
+    fieldContainer.className = "settings-group credential-field";
     
     const label = document.createElement("label");
     label.htmlFor = `${containerElement.id}_${credSpec.name}`;
@@ -664,6 +677,8 @@ async function loadSettingsForm() {
     
     // Load Transcriber settings
     const transcriberConfig = settings.transcriber;
+    localServerEnabled = transcriberConfig.localServerEnabled === true;
+    void refreshLocalServerStatus();
     transcriberTypeSelect.value = transcriberConfig.type;
     updateModelOptions(transcriberConfig.type, TRANSCRIBER_PROVIDERS, transcriberModelSelect);
     
@@ -672,13 +687,16 @@ async function loadSettingsForm() {
     }
     
     createCredentialFields(transcriberConfig.type, transcriberCredentialsContainer, TRANSCRIBER_PROVIDERS, transcriberConfig);
+
+    // Last, so the credential inputs created above are disabled too.
+    renderLocalServerToggle();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Failed to load settings: ${message}`, "error");
   }
 }
 
-async function saveSettings() {
+async function saveSettings(closeWhenDone = true) {
   try {
     const existingSettings = await window.boloApi.getSettings();
     const llmType = llmTypeSelect.value;
@@ -721,6 +739,7 @@ async function saveSettings() {
     const transcriberConfig = {
       ...existingSettings.transcriber,
       type: transcriberType,
+      localServerEnabled,
       openai: existingSettings.transcriber.openai || { apiKey: "", model: "" },
       google: existingSettings.transcriber.google || { projectId: "", credentialsPath: "" },
       groq: existingSettings.transcriber.groq || { apiKey: "", model: "" },
@@ -755,7 +774,10 @@ async function saveSettings() {
     
     await window.boloApi.updateSettings(finalSettings);
     setStatus("Settings saved successfully!");
-    closeSettings();
+
+    if (closeWhenDone) {
+      closeSettings();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Failed to save settings: ${message}`, "error");
@@ -766,6 +788,105 @@ async function saveSettings() {
 settingsButton.addEventListener("click", openSettings);
 settingsModalClose.addEventListener("click", closeSettings);
 settingsCancel.addEventListener("click", closeSettings);
+// ============ LOCAL WHISPER SERVER ============
+
+const LOCAL_STATUS_LABELS = {
+  stopped: "Local server is off",
+  starting: "Starting the local server\u2026",
+  running: "Local server running",
+  "missing-dependencies": "Python dependencies are missing",
+  error: "Local server is not running"
+};
+
+function renderLocalServerToggle() {
+  localServerToggle.setAttribute("aria-checked", String(localServerEnabled));
+  // The external provider section is unusable while the local server owns
+  // transcription, so it reads as unavailable rather than being silently ignored.
+  externalTranscriber.classList.toggle("is-disabled", localServerEnabled);
+  // Also set the real disabled state so the controls leave the tab order and
+  // cannot be focused, including credential inputs added later.
+  externalTranscriber
+    .querySelectorAll("select, input, button")
+    .forEach((control) => {
+      control.disabled = localServerEnabled;
+    });
+}
+
+function renderLocalServerState(state) {
+  localServerStatus.dataset.state = state.status;
+  localServerStatusText.textContent =
+    state.status === "running"
+      ? `${LOCAL_STATUS_LABELS.running} on port ${state.port}`
+      : LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+
+  const needsInstall = state.status === "missing-dependencies";
+  localServerActions.style.display = needsInstall ? "flex" : "none";
+  localServerInstall.disabled = state.status === "starting";
+
+  // Only surface the detail line when it adds something the status label does
+  // not already say, so the two never read as a stutter.
+  const detail =
+    state.status === "missing-dependencies" ? "" : state.message || "";
+
+  if (detail) {
+    localServerDetail.style.display = "block";
+    localServerDetail.textContent = detail;
+  } else {
+    localServerDetail.style.display = "none";
+  }
+
+  // The main process owns the transition, so poll until it settles.
+  if (localServerPoll) {
+    clearInterval(localServerPoll);
+    localServerPoll = null;
+  }
+
+  if (state.status === "starting") {
+    localServerPoll = setInterval(() => void refreshLocalServerStatus(), 700);
+  }
+}
+
+async function refreshLocalServerStatus() {
+  try {
+    renderLocalServerState(await window.boloApi.getLocalWhisperStatus());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Failed to read local server status: ${message}`, "error");
+  }
+}
+
+localServerToggle.addEventListener("click", async () => {
+  localServerEnabled = !localServerEnabled;
+  renderLocalServerToggle();
+
+  // Applied immediately rather than waiting for Save, so the server starts the
+  // moment the switch is turned on. The dialog stays open so the resulting
+  // server status is visible.
+  await saveSettings(false);
+  await refreshLocalServerStatus();
+});
+
+localServerInstall.addEventListener("click", async () => {
+  localServerInstall.disabled = true;
+  localServerStatusText.textContent = "Installing dependencies\u2026";
+
+  try {
+    const result = await window.boloApi.installLocalWhisperDeps();
+    renderLocalServerState(result.state);
+
+    if (!result.ok) {
+      setStatus("Could not install the local server dependencies", "error");
+      return;
+    }
+
+    setStatus("Local transcription dependencies installed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Dependency install failed: ${message}`, "error");
+    await refreshLocalServerStatus();
+  }
+});
+
 settingsSave.addEventListener("click", () => void saveSettings());
 
 llmTypeSelect.addEventListener("change", () => {

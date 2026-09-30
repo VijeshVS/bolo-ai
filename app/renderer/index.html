@@ -5,25 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bolo AI</title>
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
-
       :root {
-        --bg: #f6f2ea;
-        --bg-alt: #f1ece2;
-        --card: #ffffff;
-        --card-muted: #faf7f1;
-        --ink: #201c18;
-        --ink-soft: #4b443c;
+        color-scheme: dark;
+
+        /* Surfaces, from the window backdrop up to the most raised element. */
+        --bg: #16161a;
+        --surface: #1d1d22;
+        --surface-raised: #24242b;
+        --surface-sunken: #131317;
+
+        --ink: #f2f2f5;
+        --ink-secondary: #b6b6c0;
+        --ink-muted: #7e7e8a;
+
+        --line: rgba(255, 255, 255, 0.09);
+        --line-strong: rgba(255, 255, 255, 0.16);
+
         --accent: #f2a04b;
-        --accent-strong: #d57923;
-        --muted: #6b6258;
-        --border: #e7e0d3;
-        --danger: #b00020;
-        --shadow: 0 10px 30px rgba(32, 28, 24, 0.08);
+        --accent-strong: #ffb865;
+        --accent-ink: #1a1206;
+        --danger: #ff6b6b;
+        --success: #4ade80;
+
+        --radius-sm: 8px;
+        --radius: 12px;
+        --radius-lg: 16px;
+        --radius-pill: 999px;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+
         --titlebar-inset: 46px;
       }
 
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
 
       html,
       body {
@@ -31,14 +48,17 @@
         margin: 0;
         overflow: hidden;
         background: transparent;
-        font-family: "Plus Jakarta Sans", "Helvetica Neue", sans-serif;
         color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
       }
 
-      /* The window itself is transparent, so this surface owns the app's shape,
-         colour and shadow. During the pill morph its shape, veil and content
-         are derived from the current window height by ui.js, which keeps them
-         locked to the main-process bounds animation frame for frame. */
+      /* The window is transparent so it can morph in and out of the floating
+         capsule; this surface owns the app's shape, colour and shadow. Its
+         radius, veil and content fade are driven from the window height by
+         ui.js so they stay locked to the bounds animation. */
       .window-surface {
         --veil: 0;
         --content-opacity: 1;
@@ -49,14 +69,11 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        border-radius: 20px;
-        background:
-          radial-gradient(circle at 10% 0%, #efe6d7 0, transparent 42%),
-          radial-gradient(circle at 100% 10%, #f7efe0 0, transparent 45%),
-          linear-gradient(180deg, var(--bg) 0%, var(--bg-alt) 100%);
+        border-radius: 12px;
+        background: var(--bg);
         box-shadow:
-          0 26px 64px rgba(32, 28, 24, 0.24),
-          0 3px 10px rgba(32, 28, 24, 0.14);
+          0 24px 60px rgba(0, 0, 0, 0.55),
+          0 2px 8px rgba(0, 0, 0, 0.4);
       }
 
       .window-surface::before {
@@ -73,19 +90,18 @@
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-        padding: var(--titlebar-inset) 24px 24px;
-        display: grid;
-        gap: 16px;
-        align-content: start;
+        padding: var(--titlebar-inset) 28px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
         opacity: var(--content-opacity);
         transform: scale(var(--content-scale));
       }
 
-      /* macOS window controls. Electron does not draw native traffic lights on
-         a transparent window, and the transparency is what lets this window
-         morph in and out of the floating capsule, so they are drawn here. The
-         strip is a drag region so the window can still be moved by its title
-         bar, and it fades with the content during a morph. */
+      /* macOS window controls. Electron draws no native traffic lights on a
+         transparent window, and the transparency is what enables the morph, so
+         they are drawn here. The strip is a drag region so the window can still
+         be moved by its title bar, and it fades with the content during a morph. */
       .titlebar {
         position: absolute;
         top: 0;
@@ -115,10 +131,10 @@
         padding: 0;
         border: none;
         border-radius: 50%;
-        background: #d8d3ca;
+        background: #4a4a52;
         cursor: default;
-        opacity: 0.85;
-        transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+        opacity: 0.9;
+        transition: opacity 120ms ease, background 120ms ease;
       }
 
       .traffic-lights .traffic-light.close { background: #ff5f57; }
@@ -126,8 +142,6 @@
       .traffic-lights .traffic-light.zoom { background: #28c840; }
 
       .traffic-lights .traffic-light:hover {
-        transform: none;
-        box-shadow: none;
         opacity: 1;
       }
 
@@ -150,34 +164,88 @@
       .traffic-lights .traffic-light.minimize::after { content: "\2212"; }
       .traffic-lights .traffic-light.zoom::after { content: "\2039"; font-size: 12px; }
 
+      /* ---- Header ---- */
+
+      .app-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
       h1 {
         margin: 0;
-        letter-spacing: 0.01em;
-        font-size: 2rem;
+        font-size: 26px;
         font-weight: 600;
-        font-family: "Fraunces", "Plus Jakarta Sans", serif;
+        letter-spacing: -0.02em;
       }
 
       .subtitle {
-        margin: 0;
-        color: var(--muted);
+        margin: 4px 0 0;
+        color: var(--ink-muted);
+        font-size: 13px;
       }
 
+      .eyebrow {
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-muted);
+      }
+
+      /* ---- Panels ---- */
+
       .panel {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 16px;
-        box-shadow: var(--shadow);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .panel-title {
+        margin: 0 0 14px;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
       }
 
       .status {
-        font-weight: 600;
-        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 14px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink-secondary);
       }
 
-      .status.recording { color: var(--accent); }
+      .status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--ink-muted);
+      }
+
+      .status.recording { color: var(--accent-strong); }
+      .status.recording::before {
+        background: var(--accent);
+        box-shadow: 0 0 0 4px rgba(242, 160, 75, 0.18);
+      }
       .status.error { color: var(--danger); }
+      .status.error::before { background: var(--danger); }
+
+      .hint {
+        margin: 12px 0 0;
+        color: var(--ink-muted);
+        font-size: 12px;
+      }
+
+      /* ---- Buttons ---- */
 
       .button-row {
         display: flex;
@@ -186,216 +254,225 @@
       }
 
       button {
-        border: 1px solid #2b2621;
-        border-radius: 12px;
-        padding: 10px 14px;
-        font-size: 0.95rem;
-        font-weight: 700;
-        background: #2b2621;
-        color: #fffaf3;
+        appearance: none;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        padding: 8px 14px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        background: var(--surface-raised);
+        color: var(--ink);
         cursor: pointer;
-        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+        transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
       }
 
       button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 8px 18px rgba(32, 28, 24, 0.12);
+        background: #2c2c34;
+        border-color: rgba(255, 255, 255, 0.24);
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
       button.primary {
-        border: 1px solid #f4b46a;
-        background: linear-gradient(135deg, #f7b86a, var(--accent));
-        color: #241b12;
+        border-color: transparent;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 600;
       }
+
+      button.primary:hover {
+        background: var(--accent-strong);
+      }
+
+      button.danger {
+        color: var(--danger);
+      }
+
+      button.danger:hover {
+        background: rgba(255, 107, 107, 0.12);
+        border-color: rgba(255, 107, 107, 0.4);
+      }
+
+      /* ---- Monospace output ---- */
 
       .mono {
         white-space: pre-wrap;
-        font-family: Menlo, Monaco, Consolas, monospace;
-        font-size: 0.83rem;
-        background: var(--card-muted);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 10px;
-        max-height: 280px;
+        word-break: break-word;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12.5px;
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        max-height: 260px;
         overflow: auto;
-        color: var(--ink-soft);
+        color: var(--ink-secondary);
       }
 
-      .hint {
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
+      /* ---- Stats ---- */
 
       .stats-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-        gap: 12px;
-        margin-bottom: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
       }
 
       .stat-card {
-        background: linear-gradient(180deg, #fffefb 0%, #f4f1eb 100%);
-        border: 1px solid #e3ddd2;
-        border-radius: 14px;
-        padding: 12px;
-        text-align: center;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 14px;
       }
 
       .stat-label {
-        margin: 0 0 8px 0;
-        font-size: 0.8rem;
-        color: var(--muted);
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--ink-muted);
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.06em;
       }
 
       .stat-value {
         margin: 0;
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--accent-strong);
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: var(--ink);
       }
+
+      /* ---- History ---- */
 
       .history-list {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        max-height: 300px;
+        max-height: 320px;
         overflow-y: auto;
       }
 
       .history-item {
-        background: #fffdf8;
-        border: 1px solid #f0e2cf;
-        border-radius: 12px;
-        padding: 10px;
-        font-size: 0.85rem;
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        font-size: 13px;
+      }
+
+      .history-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
       }
 
       .history-timestamp {
-        color: var(--muted);
-        font-size: 0.75rem;
-        margin-bottom: 4px;
+        color: var(--ink-muted);
+        font-size: 11px;
       }
 
       .history-intent {
         display: inline-block;
-        background: #2b2621;
-        color: #fffaf3;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 0.7rem;
-        margin-bottom: 4px;
+        background: rgba(242, 160, 75, 0.16);
+        color: var(--accent-strong);
+        padding: 1px 8px;
+        border-radius: var(--radius-pill);
+        font-size: 11px;
+        font-weight: 500;
       }
 
       .history-text {
-        color: var(--ink);
+        color: var(--ink-secondary);
         word-break: break-word;
-        line-height: 1.4;
+        line-height: 1.45;
       }
+
+      /* ---- Modal ---- */
 
       .modal {
         display: none;
         position: fixed;
         z-index: 1000;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(32, 28, 24, 0.4);
-        backdrop-filter: blur(2px);
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(6px);
       }
 
       .modal.visible {
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 32px;
       }
 
       .modal-content {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 24px;
-        width: 75vw;
-        max-width: 75vw;
-        max-height: 90vh;
-        overflow-y: auto;
-        box-shadow: 0 18px 40px rgba(32, 28, 24, 0.18);
+        display: flex;
+        flex-direction: column;
+        width: min(680px, 100%);
+        max-height: 100%;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow);
+        overflow: hidden;
       }
 
       .modal-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
+        gap: 16px;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+        -webkit-app-region: drag;
+        app-region: drag;
       }
 
       .modal-header h2 {
         margin: 0;
-        font-size: 1.5rem;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .modal-body {
+        padding: 20px;
+        overflow-y: auto;
       }
 
       .modal-close {
         background: none;
         border: none;
-        font-size: 1.5rem;
-        color: var(--muted);
+        color: var(--ink-muted);
         cursor: pointer;
         padding: 0;
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
+        flex: none;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 20px;
+        line-height: 1;
       }
 
       .modal-close:hover {
         color: var(--ink);
       }
 
-      .settings-group {
-        margin-bottom: 16px;
-      }
-
-      .settings-group label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 8px;
-        color: var(--ink);
-      }
-
-      .settings-group select,
-      .settings-group input {
-        width: 100%;
-        padding: 12px;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        font-size: 0.95rem;
-        background: #fbf8f2;
-        color: var(--ink);
-        margin-bottom: 8px;
-      }
-
-      .settings-group select:focus,
-      .settings-group input:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 2px rgba(242, 160, 75, 0.2);
-      }
-
-      .settings-hint {
-        font-size: 0.8rem;
-        color: var(--muted);
-        margin-top: 4px;
-        line-height: 1.4;
-      }
-
       .modal-actions {
         display: flex;
         gap: 10px;
-        margin-top: 20px;
+        padding: 16px 20px;
+        border-top: 1px solid var(--line);
+        background: var(--surface-sunken);
       }
 
       .modal-actions button {
@@ -403,39 +480,153 @@
       }
 
       .modal-actions button.secondary {
-        background: #5b5248;
-        border-color: #5b5248;
+        background: transparent;
       }
 
-      .settings-section {
-        border-top: 1px solid var(--border);
-        padding-top: 20px;
-        margin-bottom: 20px;
-      }
+      /* ---- Settings ---- */
 
-      .settings-section:first-child {
-        border-top: none;
-        padding-top: 0;
-        margin-top: 0;
+      .settings-section + .settings-section {
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
       }
 
       .settings-section h3 {
-        margin: 0 0 16px 0;
-        font-size: 0.95rem;
-        color: var(--muted);
+        margin: 0 0 14px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--ink-muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
 
-      .field-info {
-        background: #fff2e4;
-        border-left: 3px solid var(--accent);
-        padding: 10px 12px;
-        border-radius: 6px;
-        margin-top: 8px;
-        font-size: 0.85rem;
+      .settings-group {
+        margin-bottom: 14px;
+      }
+
+      .settings-group label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .settings-group select,
+      .settings-group input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-sm);
+        font: inherit;
+        font-size: 13px;
+        background: var(--surface-sunken);
         color: var(--ink);
       }
+
+      .settings-group select:focus,
+      .settings-group input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(242, 160, 75, 0.18);
+      }
+
+      .settings-hint {
+        margin: 6px 0 0;
+        font-size: 12px;
+        color: var(--ink-muted);
+        line-height: 1.45;
+      }
+
+      /* A disabled provider section reads as unavailable rather than broken. */
+      .settings-section.is-disabled {
+        opacity: 0.45;
+        pointer-events: none;
+        user-select: none;
+      }
+
+      /* ---- Switch ---- */
+
+      .switch-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px;
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .switch-copy {
+        min-width: 0;
+      }
+
+      .switch-title {
+        margin: 0 0 2px;
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .switch {
+        position: relative;
+        flex: none;
+        width: 42px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: var(--radius-pill);
+        background: #3a3a43;
+        cursor: pointer;
+        transition: background 180ms ease;
+      }
+
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: var(--shadow-sm);
+        transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+      }
+
+      .switch[aria-checked="true"] {
+        background: var(--accent);
+      }
+
+      .switch[aria-checked="true"]::after {
+        transform: translateX(18px);
+      }
+
+      .switch:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .server-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--ink-muted);
+      }
+
+      .server-status .dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--ink-muted);
+      }
+
+      .server-status[data-state="running"] .dot { background: var(--success); }
+      .server-status[data-state="starting"] .dot { background: var(--accent); }
+      .server-status[data-state="error"] .dot,
+      .server-status[data-state="missing-dependencies"] .dot { background: var(--danger); }
     </style>
   </head>
   <body>
@@ -448,9 +639,12 @@
       </div>
     </div>
     <main class="app">
-      <header>
-        <h1>Bolo AI</h1>
-        <p class="subtitle">Double-tap Option to record. Tap Option once to transcribe and paste.</p>
+      <header class="app-header">
+        <div>
+          <h1>Bolo AI</h1>
+          <p class="subtitle">Double-tap Option to record, then tap Option to transcribe and paste.</p>
+        </div>
+        <button id="settingsButton">Settings</button>
       </header>
 
       <section class="panel">
@@ -458,18 +652,17 @@
         <div class="button-row">
           <button id="toggleRecord" class="primary">Start Recording</button>
           <button id="checkPermissions">Check Permissions</button>
-          <button id="settingsButton">⚙️ Settings</button>
         </div>
-        <p class="hint">System-wide paste uses clipboard swap and simulated Cmd+V.</p>
+        <p class="hint">Output is pasted at the cursor using a clipboard swap and a simulated Cmd+V.</p>
       </section>
 
       <section class="panel">
-        <h3>Last Output</h3>
+        <p class="panel-title">Last Output</p>
         <div id="lastOutput" class="mono">No output yet.</div>
       </section>
 
       <section class="panel">
-        <h3>Statistics</h3>
+        <p class="panel-title">Statistics</p>
         <div class="stats-grid">
           <div class="stat-card">
             <p class="stat-label">Total Words</p>
@@ -488,11 +681,13 @@
             <p id="totalCost" class="stat-value">$<span id="costAmount">0.00</span></p>
           </div>
         </div>
-        <button id="clearHistory" style="margin-top: 12px;">Clear History</button>
+        <div class="button-row" style="margin-top: 14px;">
+          <button id="clearHistory" class="danger">Clear History</button>
+        </div>
       </section>
 
       <section class="panel">
-        <h3>Recent Transcriptions</h3>
+        <p class="panel-title">Recent Transcriptions</p>
         <div id="recentHistory" class="history-list">
           <p class="hint">No history yet.</p>
         </div>
@@ -503,57 +698,89 @@
       <div class="modal-content">
         <div class="modal-header">
           <h2>Settings</h2>
-          <button class="modal-close" id="settingsModalClose">&times;</button>
+          <button class="modal-close" id="settingsModalClose" aria-label="Close settings">&times;</button>
         </div>
 
-        <div class="settings-section">
-          <h3>LLM Provider</h3>
-          <div class="settings-group">
-            <label for="llmType">Provider</label>
-            <select id="llmType">
-              <option value="openai">OpenAI (GPT-4)</option>
-              <option value="anthropic">Anthropic (Claude)</option>
-              <option value="google">Google (Gemini)</option>
-              <option value="xai">XAI (Grok)</option>
-              <option value="groq">Groq</option>
-              <option value="openrouter">OpenRouter</option>
-            </select>
-            <p class="settings-hint">Select which LLM provider to use for text formatting.</p>
-          </div>
+        <div class="modal-body">
+          <section class="settings-section">
+            <h3>Transcription</h3>
 
-          <div id="llmCredentialsContainer"></div>
+            <div class="switch-row">
+              <div class="switch-copy">
+                <p class="switch-title">Use the local Whisper server</p>
+                <p class="settings-hint" style="margin-top: 0;">
+                  Runs Whisper on this Mac instead of a hosted provider. Faster, and no audio
+                  leaves the machine. The server starts with Bolo AI and stops when it quits.
+                </p>
+              </div>
+              <button
+                class="switch"
+                id="localServerToggle"
+                role="switch"
+                aria-checked="false"
+                aria-label="Use the local Whisper server"
+              ></button>
+            </div>
 
-          <div class="settings-group">
-            <label for="llmModel">Model</label>
-            <select id="llmModel">
-              <option value="">Default</option>
-            </select>
-            <p class="settings-hint">Leave as "Default" to use the provider's recommended model.</p>
-          </div>
-        </div>
+            <div class="server-status" id="localServerStatus" data-state="stopped">
+              <span class="dot"></span>
+              <span id="localServerStatusText">Local server is off</span>
+            </div>
+            <div class="button-row" id="localServerActions" style="margin-top: 10px; display: none;">
+              <button id="localServerInstall">Install Dependencies</button>
+            </div>
+            <p class="settings-hint" id="localServerDetail" style="display: none;"></p>
 
-        <div class="settings-section">
-          <h3>Transcriber</h3>
-          <div class="settings-group">
-            <label for="transcriberType">Provider</label>
-            <select id="transcriberType">
-              <option value="openai">OpenAI Whisper</option>
-              <option value="google">Google Speech-to-Text</option>
-              <option value="groq">Groq Speech-to-Text</option>
-              <option value="whisper">Whisper (Local)</option>
-            </select>
-            <p class="settings-hint">Select which service to use for speech transcription.</p>
-          </div>
+            <div class="settings-section is-disabled" id="externalTranscriber" style="margin-top: 20px; padding-top: 20px;">
+              <h3 style="margin-bottom: 12px;">External Provider</h3>
 
-          <div id="transcriberCredentialsContainer"></div>
+              <div class="settings-group">
+                <label for="transcriberType">Provider</label>
+                <select id="transcriberType">
+                  <option value="openai">OpenAI Whisper</option>
+                  <option value="google">Google Speech-to-Text</option>
+                  <option value="groq">Groq Speech-to-Text</option>
+                  <option value="whisper">Whisper (Local)</option>
+                </select>
+                <p class="settings-hint">Used only while the local server is off.</p>
+              </div>
 
-          <div class="settings-group">
-            <label for="transcriberModel">Model</label>
-            <select id="transcriberModel">
-              <option value="">Default</option>
-            </select>
-            <p class="settings-hint">Leave as "Default" to use the provider's recommended model.</p>
-          </div>
+              <div id="transcriberCredentialsContainer"></div>
+
+              <div class="settings-group">
+                <label for="transcriberModel">Model</label>
+                <select id="transcriberModel">
+                  <option value="">Default</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Text Formatting</h3>
+
+            <div class="settings-group">
+              <label for="llmType">Provider</label>
+              <select id="llmType">
+                <option value="openai">OpenAI (GPT-4)</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="google">Google (Gemini)</option>
+                <option value="xai">XAI (Grok)</option>
+                <option value="groq">Groq</option>
+                <option value="openrouter">OpenRouter</option>
+              </select>
+              <p class="settings-hint">Formats and classifies the transcript after it is transcribed.</p>
+            </div>
+
+            <div id="llmCredentialsContainer"></div>
+
+            <div class="settings-group">
+              <label for="llmModel">Model</label>
+              <select id="llmModel">
+                <option value="">Default</option>
+              </select>
+            </div>
+          </section>
         </div>
 
         <div class="modal-actions">
@@ -561,7 +788,6 @@
           <button id="settingsSave" class="primary">Save Settings</button>
         </div>
       </div>
-    </div>
     </div>
 
     <script src="ui.js"></script>

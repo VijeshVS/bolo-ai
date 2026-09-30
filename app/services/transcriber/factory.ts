@@ -7,6 +7,12 @@ import { WhisperTranscriber } from "./whisper";
 
 export class TranscriberFactory {
   static create(config?: TranscriberConfig): Transcriber {
+    // The local server takes over completely: the selected external provider and
+    // its credentials are ignored while it is enabled.
+    if (config?.localServerEnabled) {
+      return new WhisperTranscriber();
+    }
+
     const type = config?.type || getTranscriberType();
 
     switch (type) {
