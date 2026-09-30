@@ -759,6 +759,25 @@
           <section class="settings-section">
             <h3>Text Formatting</h3>
 
+            <div class="switch-row">
+              <div class="switch-copy">
+                <p class="switch-title">Format and correct the transcript</p>
+                <p class="settings-hint" style="margin-top: 0;">
+                  Sends the transcript to the provider below to clean up grammar, punctuation and
+                  structure. Turn this off to paste the transcript exactly as recognised, with no AI
+                  step, no cost and no provider needed.
+                </p>
+              </div>
+              <button
+                class="switch"
+                id="correctionToggle"
+                role="switch"
+                aria-checked="true"
+                aria-label="Format and correct the transcript"
+              ></button>
+            </div>
+
+            <div class="settings-section is-disabled" id="llmControls" style="margin-top: 20px; padding-top: 20px;">
             <div class="settings-group">
               <label for="llmType">Provider</label>
               <select id="llmType">
@@ -779,6 +798,7 @@
               <select id="llmModel">
                 <option value="">Default</option>
               </select>
+            </div>
             </div>
           </section>
         </div>

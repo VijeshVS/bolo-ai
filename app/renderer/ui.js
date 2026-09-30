@@ -464,9 +464,12 @@ const localServerActions = document.getElementById("localServerActions");
 const localServerDetail = document.getElementById("localServerDetail");
 const localServerInstall = document.getElementById("localServerInstall");
 const externalTranscriber = document.getElementById("externalTranscriber");
+const correctionToggle = document.getElementById("correctionToggle");
+const llmControls = document.getElementById("llmControls");
 
 let localServerEnabled = false;
 let localServerPoll = null;
+let correctionEnabled = true;
 
 const transcriberTypeSelect = document.getElementById("transcriberType");
 const transcriberModelSelect = document.getElementById("transcriberModel");
@@ -666,6 +669,7 @@ async function loadSettingsForm() {
     
     // Load LLM settings
     const llmConfig = settings.llm;
+    correctionEnabled = llmConfig.correctionEnabled !== false;
     llmTypeSelect.value = llmConfig.type;
     updateModelOptions(llmConfig.type, LLM_PROVIDERS, llmModelSelect);
     
@@ -690,6 +694,7 @@ async function loadSettingsForm() {
 
     // Last, so the credential inputs created above are disabled too.
     renderLocalServerToggle();
+    renderCorrectionToggle();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Failed to load settings: ${message}`, "error");
@@ -706,6 +711,7 @@ async function saveSettings(closeWhenDone = true) {
     const llmConfig = {
       ...existingSettings.llm,
       type: llmType,
+      correctionEnabled,
       openai: existingSettings.llm.openai || { apiKey: "", model: "" },
       anthropic: existingSettings.llm.anthropic || { apiKey: "", model: "" },
       google: existingSettings.llm.google || { apiKey: "", model: "" },
@@ -798,18 +804,35 @@ const LOCAL_STATUS_LABELS = {
   error: "Local server is not running"
 };
 
-function renderLocalServerToggle() {
-  localServerToggle.setAttribute("aria-checked", String(localServerEnabled));
-  // The external provider section is unusable while the local server owns
-  // transcription, so it reads as unavailable rather than being silently ignored.
-  externalTranscriber.classList.toggle("is-disabled", localServerEnabled);
-  // Also set the real disabled state so the controls leave the tab order and
-  // cannot be focused, including credential inputs added later.
-  externalTranscriber
+/** Reflects a switch's own on/off state. */
+function setSwitchState(toggleElement, on) {
+  toggleElement.setAttribute("aria-checked", String(on));
+}
+
+/**
+ * Enables or disables the panel a switch governs. The real `disabled` attribute
+ * is set alongside the visual treatment so the controls leave the tab order and
+ * cannot be focused.
+ */
+function setPanelEnabled(container, enabled) {
+  container.classList.toggle("is-disabled", !enabled);
+  container
     .querySelectorAll("select, input, button")
     .forEach((control) => {
-      control.disabled = localServerEnabled;
+      control.disabled = !enabled;
     });
+}
+
+function renderLocalServerToggle() {
+  setSwitchState(localServerToggle, localServerEnabled);
+  // The external provider section is unusable while the local server owns
+  // transcription, so it reads as unavailable rather than being silently ignored.
+  setPanelEnabled(externalTranscriber, !localServerEnabled);
+}
+
+function renderCorrectionToggle() {
+  setSwitchState(correctionToggle, correctionEnabled);
+  setPanelEnabled(llmControls, correctionEnabled);
 }
 
 function renderLocalServerState(state) {
@@ -864,6 +887,15 @@ localServerToggle.addEventListener("click", async () => {
   // server status is visible.
   await saveSettings(false);
   await refreshLocalServerStatus();
+});
+
+correctionToggle.addEventListener("click", async () => {
+  correctionEnabled = !correctionEnabled;
+  renderCorrectionToggle();
+
+  // Applied immediately, like the local server switch, and the dialog stays
+  // open.
+  await saveSettings(false);
 });
 
 localServerInstall.addEventListener("click", async () => {

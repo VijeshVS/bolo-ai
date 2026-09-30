@@ -44,7 +44,6 @@ export class PipelineService {
     }
 
     const transcriber = TranscriberFactory.create(settings.transcriber);
-    const llmProcessor = LLMFactory.create(settings.llm);
 
     try {
       const transcriptionResult = await transcriber.transcribe(audioFilePath);
@@ -57,18 +56,25 @@ export class PipelineService {
       let outputText = expandedText;
       let tokenCount = 0;
 
-      try {
-        const intentResult = await llmProcessor.detectIntent(expandedText);
-        intent = intentResult.label;
-        tokenCount += intentResult.tokenCount;
-        totalCost += intentResult.cost;
+      // With correction off the snippet-expanded transcript is pasted as
+      // recognised. The processor is not even constructed, so this mode needs
+      // no LLM credentials at all.
+      if (settings.llm.correctionEnabled !== false) {
+        const llmProcessor = LLMFactory.create(settings.llm);
 
-        const formatResult = await llmProcessor.formatStructuredText(expandedText, intent);
-        outputText = formatResult.text;
-        tokenCount += formatResult.tokenCount;
-        totalCost += formatResult.cost;
-      } catch {
-        // Fallback to expanded transcript when AI formatting fails.
+        try {
+          const intentResult = await llmProcessor.detectIntent(expandedText);
+          intent = intentResult.label;
+          tokenCount += intentResult.tokenCount;
+          totalCost += intentResult.cost;
+
+          const formatResult = await llmProcessor.formatStructuredText(expandedText, intent);
+          outputText = formatResult.text;
+          tokenCount += formatResult.tokenCount;
+          totalCost += formatResult.cost;
+        } catch {
+          // Fallback to expanded transcript when AI formatting fails.
+        }
       }
 
       return {

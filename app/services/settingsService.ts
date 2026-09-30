@@ -29,6 +29,12 @@ export interface TranscriberConfig {
 
 export interface LLMConfig {
   type: "openai" | "anthropic" | "google" | "xai" | "groq" | "openrouter";
+  /**
+   * When false the transcript is pasted as recognised (after snippet expansion)
+   * with no AI intent detection or reformatting. Cheaper and faster, and no LLM
+   * credentials are required in this mode.
+   */
+  correctionEnabled: boolean;
   openai?: {
     apiKey: string;
     model: string;
@@ -71,6 +77,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   llm: {
     type: "openai",
+    correctionEnabled: true,
     openai: {
       apiKey: "",
       model: "gpt-4.1-mini"
