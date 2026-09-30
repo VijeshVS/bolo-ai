@@ -107,15 +107,30 @@ async function ensureModel(): Promise<string> {
     }
   });
 
+  const partPath = `${modelPath()}.part`;
+
   // Streamed to disk so the model is never held in memory while downloading.
-  await streamPipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    counter,
-    createWriteStream(`${modelPath()}.part`)
-  );
+  try {
+    await streamPipeline(
+      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+      counter,
+      createWriteStream(partPath)
+    );
+  } catch (error) {
+    // A half-written model would be worse than none: drop it so a retry starts
+    // clean instead of resuming a corrupt file.
+    if (existsSync(partPath)) {
+      unlinkSync(partPath);
+    }
+    throw new Error(
+      `The model download failed after ${Math.round(received / 1048576)} MB. ` +
+        `Check your connection and switch it off and on to retry. (${
+          error instanceof Error ? error.message : String(error)
+        })`
+    );
+  }
 
   if (!isModelDownloaded()) {
-    const partPath = `${modelPath()}.part`;
     if (existsSync(partPath)) {
       unlinkSync(partPath);
     }
@@ -123,7 +138,7 @@ async function ensureModel(): Promise<string> {
   }
 
   // Replace the finished file only once it is known to be complete.
-  renameSync(`${modelPath()}.part`, modelPath());
+  renameSync(partPath, modelPath());
 
   return modelPath();
 }

@@ -869,16 +869,31 @@ function renderLocalWhisperState(state) {
   if (state.loaded) {
     label = `whisper-${state.model} in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
   }
-  localWhisperStatusText.textContent =
-    state.loaded || state.status === "error" ? label : state.message || label;
+  // Show the most specific thing available: live progress while downloading,
+  // the real cost while loaded, and the actual reason when something failed.
+  let text;
+  if (state.status === "downloading" && state.downloadProgress) {
+    text = `Downloading the model \u2026 ${state.downloadProgress}%`;
+  } else if (state.loaded) {
+    text = `whisper-${state.model} in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
+  } else {
+    text = state.message || LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+  }
+  localWhisperStatusText.textContent = text;
 
-  // The main process owns the download and load, so poll until it settles.
+  // The main process starts the download only after it has replied to the save,
+  // so a read taken straight after the switch still sees "off". Keep polling
+  // whenever the model has not settled rather than only while it looks busy.
   if (localWhisperPoll) {
     clearInterval(localWhisperPoll);
     localWhisperPoll = null;
   }
 
-  if (state.status === "downloading" || state.status === "loading") {
+  const settled = state.status === "ready" || state.status === "error";
+  const busy = state.status === "downloading" || state.status === "loading";
+  const startingUp = localWhisperEnabled && !settled;
+
+  if (busy || startingUp) {
     localWhisperPoll = setInterval(() => void refreshLocalWhisperStatus(), 700);
   }
 }
@@ -901,6 +916,8 @@ localWhisperToggle.addEventListener("click", async () => {
   // resulting status is visible.
   await saveSettings(false);
   await refreshLocalWhisperStatus();
+  // Catch the state the main process moves to just after replying.
+  setTimeout(() => void refreshLocalWhisperStatus(), 600);
 });
 
 correctionToggle.addEventListener("click", async () => {

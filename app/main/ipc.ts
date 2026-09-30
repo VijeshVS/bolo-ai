@@ -97,7 +97,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle("settings:update", async (_event, settings) => {
     await settingsService.updateSettings(settings);
-    await syncLocalWhisperModel();
+    // Deliberately not awaited: a first-run model download takes a minute, and
+    // blocking here would freeze the switch with no progress to show. The
+    // renderer polls local-whisper:status instead.
+    void syncLocalWhisperModel().catch((error) => {
+      logger.error("Failed to sync the local whisper model", { error: String(error) });
+    });
     return settingsService.getSettings();
   });
 
