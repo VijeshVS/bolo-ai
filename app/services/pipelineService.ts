@@ -25,28 +25,37 @@ export class PipelineService {
     this.settingsService = new SettingsService();
   }
 
-  async processAudio(audioBuffer: Buffer, mimeType: string): Promise<PipelineResult> {
+  async processAudio(
+    audioBuffer: Buffer,
+    mimeType: string,
+    pcm?: Float32Array
+  ): Promise<PipelineResult> {
     const audioFilePath = await saveAudioBufferToTempFile(audioBuffer, mimeType);
 
     await this.settingsService.init();
     const settings = this.settingsService.getSettings();
+    const usingLocal = settings.transcriber.localWhisperEnabled === true;
 
-    if (settings.transcriber.localServerEnabled) {
-      const ready = await this.localWhisper.ensureRunning();
-
-      if (!ready) {
-        const state = this.localWhisper.getState();
-        await removeTempAudioFile(audioFilePath);
-        throw new Error(
-          state.message || "The local transcription server is not running. Check Settings."
-        );
-      }
+    if (usingLocal && !(await this.localWhisper.ensureLoaded())) {
+      const state = this.localWhisper.getState();
+      await removeTempAudioFile(audioFilePath);
+      throw new Error(state.message || "The local Whisper model is not available.");
     }
 
     const transcriber = TranscriberFactory.create(settings.transcriber);
 
     try {
-      const transcriptionResult = await transcriber.transcribe(audioFilePath);
+      // Local transcription runs on decoded 16 kHz mono PCM; everything else
+      // reads the saved file.
+      const transcriptionResult =
+        usingLocal && transcriber.transcribePcm
+          ? await transcriber.transcribePcm(
+              pcm ?? (() => {
+                throw new Error("Local transcription needs decoded audio.");
+              })()
+            )
+          : await transcriber.transcribe(audioFilePath);
+
       const transcript = transcriptionResult.text;
       let totalCost = transcriptionResult.cost;
 

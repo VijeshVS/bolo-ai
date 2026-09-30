@@ -1,255 +1,251 @@
-import { spawn, ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, createWriteStream, renameSync, unlinkSync } from "node:fs";
+import { Readable, Transform } from "node:stream";
+import { pipeline as streamPipeline } from "node:stream/promises";
 import path from "node:path";
 import { app } from "electron";
 import { logger } from "../utils/logger";
 
-export type LocalWhisperStatus = "stopped" | "starting" | "running" | "missing-dependencies" | "error";
+// whisper-tiny is the fastest ggml model and, per the request, the one that gets
+// loaded into memory when local transcription is switched on.
+const MODEL_NAME = "tiny";
+const MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
+const MODEL_FILE = "ggml-tiny.bin";
+
+export type LocalWhisperStatus = "off" | "downloading" | "loading" | "ready" | "error";
 
 export interface LocalWhisperState {
   status: LocalWhisperStatus;
   message: string;
-  port: number;
+  /** True while the model is resident in memory. */
+  loaded: boolean;
+  model: string;
+  downloadProgress: number;
+  /** Resident memory of the app process, so the cost of the model is visible. */
+  memoryMb: number;
 }
 
-const DEFAULT_PORT = 8000;
-const READY_TIMEOUT_MS = 45_000;
-const READY_POLL_MS = 400;
-const PROBE_TIMEOUT_MS = 2_000;
+// Imported lazily: the native module is only needed when the feature is on, so
+// a broken or missing binary cannot stop the app from launching.
+type WhisperInstance = {
+  load(): Promise<unknown>;
+  transcribe(
+    pcm: Float32Array,
+    params: Record<string, unknown>
+  ): Promise<{ result: Promise<Array<{ text: string }>> }>;
+  free(): Promise<void>;
+};
 
-let child: ChildProcess | null = null;
-let currentStatus: LocalWhisperStatus = "stopped";
-let currentMessage = "";
-let startPromise: Promise<boolean> | null = null;
-let stopping = false;
+let whisper: WhisperInstance | null = null;
+let state: LocalWhisperState = {
+  status: "off",
+  message: "",
+  loaded: false,
+  model: MODEL_NAME,
+  downloadProgress: 0,
+  memoryMb: 0
+};
+let loadPromise: Promise<boolean> | null = null;
+
+function setState(patch: Partial<LocalWhisperState>): void {
+  state = { ...state, ...patch };
+  logger.info("Local whisper state", { ...state });
+}
+
+function modelsDir(): string {
+  return path.join(app.getPath("userData"), "models");
+}
+
+function modelPath(): string {
+  return path.join(modelsDir(), MODEL_FILE);
+}
+
+function isModelDownloaded(): boolean {
+  // A truncated download would load as a corrupt model, so require a plausible size.
+  try {
+    return existsSync(modelPath()) && statSync(modelPath()).size > 50 * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureModel(): Promise<string> {
+  if (isModelDownloaded()) {
+    return modelPath();
+  }
+
+  setState({ status: "downloading", message: "Downloading the Whisper model…", downloadProgress: 0 });
+
+  mkdirSync(modelsDir(), { recursive: true });
+
+  const response = await fetch(MODEL_URL);
+
+  if (!response.ok || !response.body) {
+    throw new Error(`Model download failed (HTTP ${response.status}).`);
+  }
+
+  const total = Number(response.headers.get("content-length") || 0);
+  let received = 0;
+  let lastReported = -1;
+
+  // Counted with a pass-through transform rather than a "data" listener, which
+  // would put the stream into flowing mode and race the pipeline.
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      received += chunk.length;
+      const percent = total ? Math.floor((received / total) * 100) : 0;
+
+      if (percent !== lastReported) {
+        lastReported = percent;
+        state = { ...state, downloadProgress: percent };
+      }
+
+      callback(null, chunk);
+    }
+  });
+
+  // Streamed to disk so a 74 MB model is never held in memory.
+  await streamPipeline(
+    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+    counter,
+    createWriteStream(`${modelPath()}.part`)
+  );
+
+  if (!isModelDownloaded()) {
+    const partPath = `${modelPath()}.part`;
+    if (existsSync(partPath)) {
+      unlinkSync(partPath);
+    }
+    throw new Error("The model download was incomplete. Check your connection and try again.");
+  }
+
+  // Replace the finished file only once it is known to be complete.
+  renameSync(`${modelPath()}.part`, modelPath());
+
+  return modelPath();
+}
+
+function createWhisper(file: string): WhisperInstance {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Whisper } = require("smart-whisper") as { Whisper: new (f: string, c: Record<string, unknown>) => WhisperInstance };
+
+  // offload: 0 disables the library's idle timer so the model stays resident
+  // exactly as long as the setting is on, and is freed only when it is turned off.
+  return new Whisper(file, { gpu: false, offload: 0 });
+}
 
 export class LocalWhisperService {
-  private port = DEFAULT_PORT;
-
-  getPort(): number {
-    return this.port;
-  }
-
-  setPort(port: number): void {
-    this.port = port;
-  }
-
   getState(): LocalWhisperState {
-    return { status: currentStatus, message: currentMessage, port: this.port };
+    return { ...state, memoryMb: this.currentMemoryMb() };
   }
 
-  private setStatus(status: LocalWhisperStatus, message = ""): void {
-    currentStatus = status;
-    currentMessage = message;
-    logger.info("Local whisper server state", { status, message, port: this.port });
-  }
-
-  private serverDir(): string {
-    // Packaged builds keep local-whisper-server next to the app resources; in
-    // development it sits at the project root.
-    const candidates = [
-      path.join(app.getAppPath(), "local-whisper-server"),
-      path.join(process.resourcesPath ?? "", "local-whisper-server")
-    ];
-
-    return candidates.find((dir) => existsSync(path.join(dir, "server.py"))) ?? candidates[0];
-  }
-
-  private requirementsPath(): string {
-    return path.join(this.serverDir(), "requirements.txt");
-  }
-
-  /** True when the server answers on its port, whether we started it or not. */
-  async isHealthy(): Promise<boolean> {
+  /**
+   * Footprint of the main process in MB, as macOS reports it. process.memoryUsage()
+   * only covers the JS heap and misses the native allocations whisper.cpp makes,
+   * so it cannot answer whether the model is still resident.
+   */
+  private currentMemoryMb(): number {
     try {
-      const response = await fetch(`http://127.0.0.1:${this.port}/`, {
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
-      });
-      return response.ok;
+      const metrics = app.getAppMetrics();
+      const self = metrics.find((metric) => metric.pid === process.pid);
+      return Math.round((self?.memory.workingSetSize ?? 0) / 1024);
     } catch {
+      return 0;
+    }
+  }
+
+  isLoaded(): boolean {
+    return state.loaded;
+  }
+
+  async enable(): Promise<LocalWhisperState> {
+    if (state.loaded) {
+      return this.getState();
+    }
+
+    if (loadPromise) {
+      await loadPromise;
+      return this.getState();
+    }
+
+    loadPromise = this.enableInternal().finally(() => {
+      loadPromise = null;
+    });
+
+    await loadPromise;
+    return this.getState();
+  }
+
+  private async enableInternal(): Promise<boolean> {
+    try {
+      const file = await ensureModel();
+
+      setState({ status: "loading", message: "Loading the model into memory…", downloadProgress: 100 });
+
+      whisper = createWhisper(file);
+      await whisper.load();
+
+      setState({
+        status: "ready",
+        message: "Whisper is loaded in memory and transcribing on this Mac.",
+        loaded: true
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setState({ status: "error", message, loaded: false });
       return false;
     }
   }
 
-  /**
-   * Installs the Python dependencies. Kept as an explicit, user-triggered step
-   * because it mutates the machine's Python environment.
-   */
-  async installDependencies(): Promise<{ ok: boolean; message: string }> {
-    const requirements = this.requirementsPath();
-
-    if (!existsSync(requirements)) {
-      return { ok: false, message: `requirements.txt not found at ${requirements}` };
+  /** Releases the model so it stops occupying memory while the app runs. */
+  async disable(): Promise<LocalWhisperState> {
+    if (whisper) {
+      try {
+        await whisper.free();
+      } catch (error) {
+        logger.warn("Failed to free the whisper model cleanly", { error: String(error) });
+      }
+      whisper = null;
     }
 
-    return new Promise((resolve) => {
-      const pip = spawn("python3", ["-m", "pip", "install", "-r", requirements], {
-        cwd: this.serverDir()
-      });
-
-      let output = "";
-
-      pip.stdout?.on("data", (chunk) => {
-        output += String(chunk);
-      });
-      pip.stderr?.on("data", (chunk) => {
-        output += String(chunk);
-      });
-
-      pip.on("error", (error) => {
-        resolve({ ok: false, message: `Could not run python3: ${String(error)}` });
-      });
-
-      pip.on("close", (code) => {
-        if (code === 0) {
-          resolve({ ok: true, message: output.trim().split("\n").slice(-1)[0] ?? "Dependencies installed." });
-          return;
-        }
-
-        resolve({
-          ok: false,
-          message: output.trim().split("\n").slice(-3).join("\n") || `pip exited with code ${code}`
-        });
-      });
+    setState({
+      status: "off",
+      message: "Whisper is not loaded. No model is held in memory.",
+      loaded: false,
+      downloadProgress: 0
     });
+
+    return this.getState();
   }
 
-  /** True when every import the server needs is already available. */
-  async hasDependencies(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const probe = spawn("python3", ["-c", "import fastapi, uvicorn, mlx_whisper"]);
-
-      probe.on("error", () => resolve(false));
-      probe.on("close", (code) => resolve(code === 0));
-    });
-  }
-
-  async start(): Promise<boolean> {
-    if (startPromise) {
-      return startPromise;
+  /** Loads the model if needed, then transcribes mono 16 kHz PCM. */
+  async transcribe(pcm: Float32Array): Promise<string> {
+    if (!state.loaded && !(await this.enableInternal())) {
+      throw new Error(state.message || "The local Whisper model is not available.");
     }
 
-    startPromise = this.startInternal().finally(() => {
-      startPromise = null;
+    if (!whisper) {
+      throw new Error("The local Whisper model is not available.");
+    }
+
+    const task = await whisper.transcribe(pcm, {
+      language: "en",
+      print_progress: false,
+      print_realtime: false,
+      print_timestamps: false
     });
 
-    return startPromise;
+    const segments = await task.result;
+    return segments
+      .map((segment) => segment.text)
+      .join("")
+      .trim();
   }
 
-  private async startInternal(): Promise<boolean> {
-    if (child) {
+  async ensureLoaded(): Promise<boolean> {
+    if (state.loaded) {
       return true;
     }
-
-    // Reuse a server that is already listening, e.g. started by hand.
-    if (await this.isHealthy()) {
-      this.setStatus("running", "Using the server already listening on this port.");
-      return true;
-    }
-
-    if (!(await this.hasDependencies())) {
-      this.setStatus(
-        "missing-dependencies",
-        "Python packages are missing. Install them to use local transcription."
-      );
-      return false;
-    }
-
-    const dir = this.serverDir();
-
-    if (!existsSync(path.join(dir, "server.py"))) {
-      this.setStatus("error", `server.py not found in ${dir}`);
-      return false;
-    }
-
-    this.setStatus("starting", "Starting the local transcription server...");
-
-    child = spawn(
-      "python3",
-      ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", String(this.port)],
-      { cwd: dir }
-    );
-
-    stopping = false;
-
-    let stderr = "";
-    child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on("error", (error) => {
-      logger.error("Local whisper server failed to spawn", { error: String(error) });
-      this.setStatus("error", `Could not start the server: ${String(error)}`);
-    });
-
-    child.on("exit", (code) => {
-      child = null;
-      if (stopping) {
-        this.setStatus("stopped", "");
-        return;
-      }
-      this.setStatus(
-        "error",
-        `The server exited unexpectedly (code ${code}).${stderr ? ` ${stderr.trim().split("\n").slice(-1)[0]}` : ""}`
-      );
-    });
-
-    const ready = await this.waitForReady();
-    stopping = false;
-
-    if (ready) {
-      this.setStatus("running", "Local transcription server is running.");
-      return true;
-    }
-
-    this.stop();
-    this.setStatus("error", "The server did not become ready in time.");
-    return false;
-  }
-
-  private async waitForReady(): Promise<boolean> {
-    const deadline = Date.now() + READY_TIMEOUT_MS;
-
-    while (Date.now() < deadline) {
-      if (!child) {
-        return false;
-      }
-
-      if (await this.isHealthy()) {
-        return true;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
-    }
-
-    return false;
-  }
-
-  stop(): void {
-    if (!child) {
-      this.setStatus("stopped", "");
-      return;
-    }
-
-    stopping = true;
-    child.kill("SIGTERM");
-    child = null;
-    this.setStatus("stopped", "");
-  }
-
-  /**
-   * Called before every local transcription. Cheap when the server is already
-   * up, and starts it if the app was launched with the setting already on.
-   */
-  async ensureRunning(): Promise<boolean> {
-    if (currentStatus === "running") {
-      if (await this.isHealthy()) {
-        return true;
-      }
-      // The process died without us noticing; try to bring it back.
-      child = null;
-    }
-
-    return this.start();
+    return this.enableInternal();
   }
 }

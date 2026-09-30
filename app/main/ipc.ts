@@ -7,11 +7,14 @@ import { LocalWhisperService } from "../services/localWhisperService";
 import { PipelineService } from "../services/pipelineService";
 import { SnippetService } from "../services/snippetService";
 import { SettingsService } from "../services/settingsService";
+import { TranscriberFactory } from "../services/transcriber/factory";
 import { logger } from "../utils/logger";
 
-// One server process per app, shared by the pipeline and the settings UI.
+// One in-process model, shared by the pipeline and the settings UI.
 const localWhisper = new LocalWhisperService();
 const settingsService = new SettingsService();
+
+TranscriberFactory.local = localWhisper;
 
 function normalizeAudioBytes(input: unknown): Buffer {
   if (Buffer.isBuffer(input)) {
@@ -42,13 +45,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return checkPermissions(options);
   });
 
-  ipcMain.handle("pipeline:process-audio", async (_event, payload: { audioData: unknown; mimeType: string }) => {
+  ipcMain.handle(
+    "pipeline:process-audio",
+    async (_event, payload: { audioData: unknown; mimeType: string; pcm?: ArrayLike<number> }) => {
     const audioBuffer = normalizeAudioBytes(payload.audioData);
     const mimeType = payload.mimeType || "audio/webm";
+    // Mono 16 kHz samples, only supplied when local transcription is on.
+    const pcm = payload.pcm ? Float32Array.from(payload.pcm) : undefined;
 
     logger.info("Received audio payload", { bytes: audioBuffer.length, mimeType });
 
-    const result = await pipelineService.processAudio(audioBuffer, mimeType);
+    const result = await pipelineService.processAudio(audioBuffer, mimeType, pcm);
     
     const wordCount = result.transcript.split(/\s+/).filter(w => w.length > 0).length;
     await historyService.addRecord({
@@ -64,7 +71,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await pasteTextAtCursor(result.outputText);
 
     return result;
-  });
+    }
+  );
 
   ipcMain.handle("snippets:get", async () => snippetService.getAll());
   ipcMain.handle("snippets:set", async (_event, payload: { key: string; value: string }) => {
@@ -89,32 +97,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle("settings:update", async (_event, settings) => {
     await settingsService.updateSettings(settings);
-    await syncLocalWhisperServer();
+    await syncLocalWhisperModel();
     return settingsService.getSettings();
   });
 
   ipcMain.handle("local-whisper:status", async () => localWhisper.getState());
 
-  ipcMain.handle("local-whisper:start", async () => {
-    await localWhisper.start();
-    return localWhisper.getState();
-  });
+  ipcMain.handle("local-whisper:enable", async () => localWhisper.enable());
 
-  ipcMain.handle("local-whisper:stop", async () => {
-    localWhisper.stop();
-    return localWhisper.getState();
-  });
-
-  ipcMain.handle("local-whisper:install", async () => {
-    const result = await localWhisper.installDependencies();
-
-    if (result.ok) {
-      // Installing is pointless unless the server can then actually run.
-      await localWhisper.start();
-    }
-
-    return { ...result, state: localWhisper.getState() };
-  });
+  ipcMain.handle("local-whisper:disable", async () => localWhisper.disable());
 
   ipcMain.handle("window:show", async () => {
     if (mainWindow.isMinimized()) {
@@ -129,22 +120,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 }
 
 /**
- * Starts or stops the local server to match the saved setting. Called on launch
- * and whenever settings are saved, so the checkbox is the single source of
- * truth for whether the server runs.
+ * Loads or frees the model to match the saved setting, so the switch is the
+ * single source of truth for whether the model is resident in memory. Called on
+ * launch and whenever settings are saved.
  */
-export async function syncLocalWhisperServer(): Promise<void> {
+export async function syncLocalWhisperModel(): Promise<void> {
   await settingsService.init();
-  const enabled = settingsService.getSettings().transcriber.localServerEnabled === true;
+  const enabled = settingsService.getSettings().transcriber.localWhisperEnabled === true;
 
   if (enabled) {
-    await localWhisper.ensureRunning();
+    await localWhisper.ensureLoaded();
     return;
   }
 
-  localWhisper.stop();
+  await localWhisper.disable();
 }
 
-export function stopLocalWhisperServer(): void {
-  localWhisper.stop();
+export function stopLocalWhisperModel(): void {
+  void localWhisper.disable();
 }

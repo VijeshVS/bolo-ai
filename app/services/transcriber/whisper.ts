@@ -1,38 +1,22 @@
 import type { Transcriber, TranscriptionResult } from ".";
+import { LocalWhisperService } from "../localWhisperService";
 
-interface WhisperResponse {
-  status?: string;
-  text?: string;
-  message?: string;
-}
-
-export class WhisperTranscriber implements Transcriber {
-  private readonly baseUrl: string;
-
-  constructor(port = 8000) {
-    this.baseUrl = `http://127.0.0.1:${port}`;
-  }
+/**
+ * Runs whisper.cpp inside the app process. No Python, no separate server, and no
+ * model in memory unless local transcription is switched on.
+ */
+export class WhisperCppTranscriber implements Transcriber {
+  constructor(private readonly local: LocalWhisperService) {}
 
   async transcribe(filePath: string): Promise<TranscriptionResult> {
-    let response: Response;
+    throw new Error(
+      "Local transcription needs decoded audio. Record a new clip instead of " +
+        `transcribing an existing file (${filePath}).`
+    );
+  }
 
-    try {
-      response = await fetch(
-        `${this.baseUrl}/transcribe?audio_path=${encodeURIComponent(filePath)}`,
-        { signal: AbortSignal.timeout(120_000) }
-      );
-    } catch {
-      throw new Error(
-        "Could not reach the local transcription server. Check that it is running in Settings."
-      );
-    }
-
-    const data = (await response.json()) as WhisperResponse;
-
-    if (!response.ok || data.status !== "success") {
-      throw new Error(data.message || `Local transcription failed (HTTP ${response.status}).`);
-    }
-
-    return { text: data.text ?? "", cost: 0 };
+  async transcribePcm(pcm: Float32Array): Promise<TranscriptionResult> {
+    const text = await this.local.transcribe(pcm);
+    return { text, cost: 0 };
   }
 }

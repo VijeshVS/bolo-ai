@@ -193,6 +193,30 @@ document.getElementById("windowZoom").addEventListener("click", () => {
 
 // ============ AUDIO LEVEL METER ============
 
+// whisper.cpp consumes mono 16 kHz PCM, so the recorded blob is decoded and
+// resampled in the renderer where Web Audio already lives.
+const WHISPER_SAMPLE_RATE = 16000;
+
+async function decodeToMono16k(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const decodeContext = new AudioContext();
+
+  try {
+    const decoded = await decodeContext.decodeAudioData(arrayBuffer);
+    const source = decoded;
+    const frames = Math.round((source.duration * WHISPER_SAMPLE_RATE));
+    const offline = new OfflineAudioContext(1, Math.max(1, frames), WHISPER_SAMPLE_RATE);
+    const node = offline.createBufferSource();
+    node.buffer = source;
+    node.connect(offline.destination);
+    node.start();
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0).slice();
+  } finally {
+    void decodeContext.close();
+  }
+}
+
 const LEVEL_SAMPLE_INTERVAL_MS = 50;
 const LEVEL_NOISE_FLOOR = 0.008;
 const LEVEL_RANGE = 0.22;
@@ -328,9 +352,12 @@ async function startRecording() {
         const blob = new Blob(audioChunks, { type: blobType });
         const arrayBuffer = await blob.arrayBuffer();
 
-        setStatus("Transcribing and formatting...");
+        const useLocal = (await window.boloApi.getSettings()).transcriber.localWhisperEnabled === true;
+        const pcm = useLocal ? await decodeToMono16k(blob) : undefined;
 
-        const result = await window.boloApi.processAudio(arrayBuffer, blobType);
+        setStatus(useLocal ? "Transcribing on this Mac..." : "Transcribing and formatting...");
+
+        const result = await window.boloApi.processAudio(arrayBuffer, blobType, pcm);
         lastOutputEl.textContent = result.outputText || "(empty output)";
         setStatus(`Done. Intent: ${result.intent}`);
         
@@ -457,18 +484,15 @@ const llmTypeSelect = document.getElementById("llmType");
 const llmModelSelect = document.getElementById("llmModel");
 const llmCredentialsContainer = document.getElementById("llmCredentialsContainer");
 
-const localServerToggle = document.getElementById("localServerToggle");
-const localServerStatus = document.getElementById("localServerStatus");
-const localServerStatusText = document.getElementById("localServerStatusText");
-const localServerActions = document.getElementById("localServerActions");
-const localServerDetail = document.getElementById("localServerDetail");
-const localServerInstall = document.getElementById("localServerInstall");
+const localWhisperToggle = document.getElementById("localWhisperToggle");
+const localWhisperStatus = document.getElementById("localWhisperStatus");
+const localWhisperStatusText = document.getElementById("localWhisperStatusText");
 const externalTranscriber = document.getElementById("externalTranscriber");
 const correctionToggle = document.getElementById("correctionToggle");
 const llmControls = document.getElementById("llmControls");
 
-let localServerEnabled = false;
-let localServerPoll = null;
+let localWhisperEnabled = false;
+let localWhisperPoll = null;
 let correctionEnabled = true;
 
 const transcriberTypeSelect = document.getElementById("transcriberType");
@@ -681,8 +705,8 @@ async function loadSettingsForm() {
     
     // Load Transcriber settings
     const transcriberConfig = settings.transcriber;
-    localServerEnabled = transcriberConfig.localServerEnabled === true;
-    void refreshLocalServerStatus();
+    localWhisperEnabled = transcriberConfig.localWhisperEnabled === true;
+    void refreshLocalWhisperStatus();
     transcriberTypeSelect.value = transcriberConfig.type;
     updateModelOptions(transcriberConfig.type, TRANSCRIBER_PROVIDERS, transcriberModelSelect);
     
@@ -693,7 +717,7 @@ async function loadSettingsForm() {
     createCredentialFields(transcriberConfig.type, transcriberCredentialsContainer, TRANSCRIBER_PROVIDERS, transcriberConfig);
 
     // Last, so the credential inputs created above are disabled too.
-    renderLocalServerToggle();
+    renderLocalWhisperToggle();
     renderCorrectionToggle();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -745,7 +769,7 @@ async function saveSettings(closeWhenDone = true) {
     const transcriberConfig = {
       ...existingSettings.transcriber,
       type: transcriberType,
-      localServerEnabled,
+      localWhisperEnabled,
       openai: existingSettings.transcriber.openai || { apiKey: "", model: "" },
       google: existingSettings.transcriber.google || { projectId: "", credentialsPath: "" },
       groq: existingSettings.transcriber.groq || { apiKey: "", model: "" },
@@ -797,11 +821,11 @@ settingsCancel.addEventListener("click", closeSettings);
 // ============ LOCAL WHISPER SERVER ============
 
 const LOCAL_STATUS_LABELS = {
-  stopped: "Local server is off",
-  starting: "Starting the local server\u2026",
-  running: "Local server running",
-  "missing-dependencies": "Python dependencies are missing",
-  error: "Local server is not running"
+  off: "No model in memory",
+  downloading: "Downloading the model\u2026",
+  loading: "Loading the model into memory\u2026",
+  ready: "Model loaded in memory",
+  error: "The model could not be loaded"
 };
 
 /** Reflects a switch's own on/off state. */
@@ -823,11 +847,11 @@ function setPanelEnabled(container, enabled) {
     });
 }
 
-function renderLocalServerToggle() {
-  setSwitchState(localServerToggle, localServerEnabled);
-  // The external provider section is unusable while the local server owns
+function renderLocalWhisperToggle() {
+  setSwitchState(localWhisperToggle, localWhisperEnabled);
+  // The external provider section is unusable while local Whisper owns
   // transcription, so it reads as unavailable rather than being silently ignored.
-  setPanelEnabled(externalTranscriber, !localServerEnabled);
+  setPanelEnabled(externalTranscriber, !localWhisperEnabled);
 }
 
 function renderCorrectionToggle() {
@@ -835,89 +859,59 @@ function renderCorrectionToggle() {
   setPanelEnabled(llmControls, correctionEnabled);
 }
 
-function renderLocalServerState(state) {
-  localServerStatus.dataset.state = state.status;
-  localServerStatusText.textContent =
-    state.status === "running"
-      ? `${LOCAL_STATUS_LABELS.running} on port ${state.port}`
-      : LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+function renderLocalWhisperState(state) {
+  localWhisperStatus.dataset.state = state.status;
 
-  const needsInstall = state.status === "missing-dependencies";
-  localServerActions.style.display = needsInstall ? "flex" : "none";
-  localServerInstall.disabled = state.status === "starting";
+  let label = LOCAL_STATUS_LABELS[state.status] || LOCAL_STATUS_LABELS.error;
+  if (state.status === "downloading" && state.downloadProgress) {
+    label = `Downloading the model \u2026 ${state.downloadProgress}%`;
+  }
+  if (state.loaded) {
+    label = `whisper-tiny in memory \u2014 ${state.memoryMb} MB used by Bolo AI`;
+  }
+  localWhisperStatusText.textContent =
+    state.loaded || state.status === "error" ? label : state.message || label;
 
-  // Only surface the detail line when it adds something the status label does
-  // not already say, so the two never read as a stutter.
-  const detail =
-    state.status === "missing-dependencies" ? "" : state.message || "";
-
-  if (detail) {
-    localServerDetail.style.display = "block";
-    localServerDetail.textContent = detail;
-  } else {
-    localServerDetail.style.display = "none";
+  // The main process owns the download and load, so poll until it settles.
+  if (localWhisperPoll) {
+    clearInterval(localWhisperPoll);
+    localWhisperPoll = null;
   }
 
-  // The main process owns the transition, so poll until it settles.
-  if (localServerPoll) {
-    clearInterval(localServerPoll);
-    localServerPoll = null;
-  }
-
-  if (state.status === "starting") {
-    localServerPoll = setInterval(() => void refreshLocalServerStatus(), 700);
+  if (state.status === "downloading" || state.status === "loading") {
+    localWhisperPoll = setInterval(() => void refreshLocalWhisperStatus(), 700);
   }
 }
 
-async function refreshLocalServerStatus() {
+async function refreshLocalWhisperStatus() {
   try {
-    renderLocalServerState(await window.boloApi.getLocalWhisperStatus());
+    renderLocalWhisperState(await window.boloApi.getLocalWhisperStatus());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Failed to read local server status: ${message}`, "error");
+    setStatus(`Failed to read the local model status: ${message}`, "error");
   }
 }
 
-localServerToggle.addEventListener("click", async () => {
-  localServerEnabled = !localServerEnabled;
-  renderLocalServerToggle();
+localWhisperToggle.addEventListener("click", async () => {
+  localWhisperEnabled = !localWhisperEnabled;
+  renderLocalWhisperToggle();
 
-  // Applied immediately rather than waiting for Save, so the server starts the
-  // moment the switch is turned on. The dialog stays open so the resulting
-  // server status is visible.
+  // Applied immediately rather than waiting for Save, so the model is loaded or
+  // released the moment the switch moves. The dialog stays open so the
+  // resulting status is visible.
   await saveSettings(false);
-  await refreshLocalServerStatus();
+  await refreshLocalWhisperStatus();
 });
 
 correctionToggle.addEventListener("click", async () => {
   correctionEnabled = !correctionEnabled;
   renderCorrectionToggle();
 
-  // Applied immediately, like the local server switch, and the dialog stays
+  // Applied immediately, like the local Whisper switch, and the dialog stays
   // open.
   await saveSettings(false);
 });
 
-localServerInstall.addEventListener("click", async () => {
-  localServerInstall.disabled = true;
-  localServerStatusText.textContent = "Installing dependencies\u2026";
-
-  try {
-    const result = await window.boloApi.installLocalWhisperDeps();
-    renderLocalServerState(result.state);
-
-    if (!result.ok) {
-      setStatus("Could not install the local server dependencies", "error");
-      return;
-    }
-
-    setStatus("Local transcription dependencies installed");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Dependency install failed: ${message}`, "error");
-    await refreshLocalServerStatus();
-  }
-});
 
 settingsSave.addEventListener("click", () => void saveSettings());
 

@@ -5,11 +5,11 @@ import { promises as fs } from "node:fs";
 export interface TranscriberConfig {
   type: "openai" | "google" | "groq" | "whisper";
   /**
-   * When true, transcription is handled by the bundled local Whisper server and
-   * `type` (plus its credentials) is ignored. The server is started and stopped
-   * with the app.
+   * When true, transcription runs inside this app through whisper.cpp and
+   * `type` (plus its credentials) is ignored. The model is loaded into memory
+   * while this is on and released the moment it is turned off.
    */
-  localServerEnabled: boolean;
+  localWhisperEnabled: boolean;
   openai?: {
     apiKey: string;
     model: string;
@@ -69,7 +69,7 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   transcriber: {
     type: "openai",
-    localServerEnabled: false,
+    localWhisperEnabled: false,
     openai: {
       apiKey: "",
       model: "gpt-4o-transcribe"
