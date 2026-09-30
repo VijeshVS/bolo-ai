@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import { promises as fsp } from "node:fs";
-import OpenAI from "openai";
+import { OpenAICompatibleClient } from "../openaiCompatible";
 import type { Transcriber, TranscriptionResult } from "./index";
 import { logger } from "../../utils/logger";
 
@@ -9,7 +8,7 @@ const TURBO_COST_PER_HOUR = 0.04;
 const LARGE_V3_COST_PER_HOUR = 0.111;
 
 export class GroqTranscriber implements Transcriber {
-  private client: OpenAI;
+  private client: OpenAICompatibleClient;
   private model: string;
 
   constructor(apiKey?: string, model?: string) {
@@ -18,10 +17,7 @@ export class GroqTranscriber implements Transcriber {
       throw new Error("Groq API key is not configured");
     }
 
-    this.client = new OpenAI({
-      apiKey: key,
-      baseURL: "https://api.groq.com/openai/v1"
-    });
+    this.client = new OpenAICompatibleClient(key, "https://api.groq.com/openai/v1", "Groq");
     this.model = model || process.env.GROQ_TRANSCRIPTION_MODEL || "whisper-large-v3-turbo";
   }
 
@@ -43,21 +39,7 @@ export class GroqTranscriber implements Transcriber {
       model: this.model
     });
 
-    const response = await this.client.audio.transcriptions.create({
-      file: fs.createReadStream(filePath),
-      model: this.model,
-      response_format: "text",
-      prompt,
-      temperature: 0
-    });
-
-    let text = "";
-    if (typeof response === "string") {
-      text = response.trim();
-    } else {
-      const typedResponse = response as { text?: string };
-      text = (typedResponse.text || "").trim();
-    }
+    const text = await this.client.transcribe(this.model, filePath, prompt, 0);
 
     const estimatedDurationSeconds = Math.max(10, Math.round(fileStat.size / 64000));
     const cost = this.estimateCost(estimatedDurationSeconds);

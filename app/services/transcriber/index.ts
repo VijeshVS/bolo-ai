@@ -13,11 +13,13 @@ export interface Transcriber {
   transcribePcm?(pcm: Float32Array): Promise<TranscriptionResult>;
 }
 
-export type TranscriberType = "openai" | "google" | "groq" | "whisper";
+export type TranscriberType = "openai" | "groq" | "whisper";
+
+const TRANSCRIBER_TYPES: TranscriberType[] = ["openai", "groq", "whisper"];
 
 export function getTranscriberType(): TranscriberType {
   const type = process.env.TRANSCRIBER_TYPE || "openai";
-  if (!["openai", "google", "groq", "whisper"].includes(type)) {
+  if (!TRANSCRIBER_TYPES.includes(type as TranscriberType)) {
     throw new Error(`Unknown transcriber type: ${type}`);
   }
   return type as TranscriberType;

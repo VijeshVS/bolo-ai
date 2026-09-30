@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { OpenAICompatibleClient } from "./openaiCompatible";
 import { logger } from "../utils/logger";
 
 const INTENT_LABELS = ["paragraph", "bullet_list", "email", "code", "command"] as const;
@@ -31,13 +31,13 @@ Output requirements:
 - No preamble, no labels, no markdown fences unless the input itself implies them.
 - Output must be directly paste-ready.`;
 
-function getClient(): OpenAI {
+function getClient(): OpenAICompatibleClient {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
 
-  return new OpenAI({ apiKey });
+  return new OpenAICompatibleClient(apiKey, "https://api.openai.com/v1", "OpenAI");
 }
 
 function getModel(): string {
@@ -59,10 +59,9 @@ export async function detectIntent(rawText: string): Promise<{ label: IntentLabe
     model
   });
 
-  const completion = await client.chat.completions.create({
+  const completion = await client.chat(
     model,
-    temperature: 0,
-    messages: [
+    [
       {
         role: "system",
         content: "Classify input into one of: paragraph, bullet_list, email, code, command. Return only the label."
@@ -71,14 +70,13 @@ export async function detectIntent(rawText: string): Promise<{ label: IntentLabe
         role: "user",
         content: rawText
       }
-    ]
-  });
+    ],
+    0
+  );
 
-  const label = (completion.choices[0]?.message?.content || "paragraph").trim() as IntentLabel;
-  const tokenCount = completion.usage?.total_tokens || 0;
-  const inputTokens = completion.usage?.prompt_tokens || 0;
-  const outputTokens = completion.usage?.completion_tokens || 0;
-  const cost = calculateTokenCost(inputTokens, outputTokens);
+  const label = (completion.text || "paragraph").trim() as IntentLabel;
+  const tokenCount = completion.totalTokens;
+  const cost = calculateTokenCost(completion.promptTokens, completion.completionTokens);
   
   if (INTENT_LABELS.includes(label)) {
     return { label, tokenCount, cost };
@@ -113,10 +111,9 @@ export async function formatStructuredText(rawText: string, intent: IntentLabel)
     model
   });
 
-  const completion = await client.chat.completions.create({
+  const completion = await client.chat(
     model,
-    temperature: 0,
-    messages: [
+    [
       {
         role: "system",
         content: `${STRUCTURING_SYSTEM_PROMPT}\n\nIntent: ${intent}. ${intentInstruction(intent)}`
@@ -125,14 +122,13 @@ export async function formatStructuredText(rawText: string, intent: IntentLabel)
         role: "user",
         content: `Transform this transcript only:\n\n${rawText}`
       }
-    ]
-  });
+    ],
+    0
+  );
 
-  const text = (completion.choices[0]?.message?.content || rawText).trim();
-  const tokenCount = completion.usage?.total_tokens || 0;
-  const inputTokens = completion.usage?.prompt_tokens || 0;
-  const outputTokens = completion.usage?.completion_tokens || 0;
-  const cost = calculateTokenCost(inputTokens, outputTokens);
+  const text = (completion.text || rawText).trim();
+  const tokenCount = completion.totalTokens;
+  const cost = calculateTokenCost(completion.promptTokens, completion.completionTokens);
   
   return { text, tokenCount, cost };
 }

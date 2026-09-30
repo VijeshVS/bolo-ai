@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { OpenAICompatibleClient } from "../openaiCompatible";
 import type { LLMProcessor, IntentDetectionResult, TextFormattingResult, IntentLabel } from "./index";
 import { INTENT_LABELS } from "./index";
 import { logger } from "../../utils/logger";
@@ -30,7 +30,7 @@ Output requirements:
 - Output must be directly paste-ready.`;
 
 export class OpenRouterProcessor implements LLMProcessor {
-  private client: OpenAI;
+  private client: OpenAICompatibleClient;
   private model: string;
 
   constructor(apiKey?: string, model?: string) {
@@ -39,10 +39,7 @@ export class OpenRouterProcessor implements LLMProcessor {
       throw new Error("OpenRouter API key is not configured");
     }
 
-    this.client = new OpenAI({
-      apiKey: key,
-      baseURL: "https://openrouter.ai/api/v1"
-    });
+    this.client = new OpenAICompatibleClient(key, "https://openrouter.ai/api/v1", "OpenRouter");
     this.model = model || process.env.OPENROUTER_MODEL || "openrouter/free";
   }
 
@@ -58,10 +55,9 @@ export class OpenRouterProcessor implements LLMProcessor {
       model: this.model
     });
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      temperature: 0,
-      messages: [
+    const completion = await this.client.chat(
+      this.model,
+      [
         {
           role: "system",
           content: "Classify input into one of: paragraph, bullet_list, email, code, command. Return only the label."
@@ -70,14 +66,13 @@ export class OpenRouterProcessor implements LLMProcessor {
           role: "user",
           content: rawText
         }
-      ]
-    });
+      ],
+      0
+    );
 
-    const label = (completion.choices[0]?.message?.content || "paragraph").trim() as IntentLabel;
-    const tokenCount = completion.usage?.total_tokens || 0;
-    const inputTokens = completion.usage?.prompt_tokens || 0;
-    const outputTokens = completion.usage?.completion_tokens || 0;
-    const cost = this.calculateTokenCost(inputTokens, outputTokens);
+    const label = (completion.text || "paragraph").trim() as IntentLabel;
+    const tokenCount = completion.totalTokens;
+    const cost = this.calculateTokenCost(completion.promptTokens, completion.completionTokens);
 
     if (INTENT_LABELS.includes(label)) {
       return { label, tokenCount, cost };
@@ -93,10 +88,9 @@ export class OpenRouterProcessor implements LLMProcessor {
       model: this.model
     });
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      temperature: 0,
-      messages: [
+    const completion = await this.client.chat(
+      this.model,
+      [
         {
           role: "system",
           content: `${STRUCTURING_SYSTEM_PROMPT}\n\nIntent: ${intent}. ${this.intentInstruction(intent)}`
@@ -105,14 +99,13 @@ export class OpenRouterProcessor implements LLMProcessor {
           role: "user",
           content: `Transform this transcript only:\n\n${rawText}`
         }
-      ]
-    });
+      ],
+      0
+    );
 
-    const text = (completion.choices[0]?.message?.content || rawText).trim();
-    const tokenCount = completion.usage?.total_tokens || 0;
-    const inputTokens = completion.usage?.prompt_tokens || 0;
-    const outputTokens = completion.usage?.completion_tokens || 0;
-    const cost = this.calculateTokenCost(inputTokens, outputTokens);
+    const text = (completion.text || rawText).trim();
+    const tokenCount = completion.totalTokens;
+    const cost = this.calculateTokenCost(completion.promptTokens, completion.completionTokens);
 
     return { text, tokenCount, cost };
   }

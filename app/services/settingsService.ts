@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 
 export interface TranscriberConfig {
-  type: "openai" | "google" | "groq" | "whisper";
+  type: "openai" | "groq" | "whisper";
   /**
    * When true, transcription runs inside this app through whisper.cpp and
    * `type` (plus its credentials) is ignored. The model is loaded into memory
@@ -13,10 +13,6 @@ export interface TranscriberConfig {
   openai?: {
     apiKey: string;
     model: string;
-  };
-  google?: {
-    projectId: string;
-    credentialsPath: string;
   };
   groq?: {
     apiKey: string;
@@ -28,7 +24,7 @@ export interface TranscriberConfig {
 }
 
 export interface LLMConfig {
-  type: "openai" | "anthropic" | "google" | "xai" | "groq" | "openrouter";
+  type: "openai" | "groq" | "openrouter";
   /**
    * When false the transcript is pasted as recognised (after snippet expansion)
    * with no AI intent detection or reformatting. Cheaper and faster, and no LLM
@@ -36,18 +32,6 @@ export interface LLMConfig {
    */
   correctionEnabled: boolean;
   openai?: {
-    apiKey: string;
-    model: string;
-  };
-  anthropic?: {
-    apiKey: string;
-    model: string;
-  };
-  google?: {
-    apiKey: string;
-    model: string;
-  };
-  xai?: {
     apiKey: string;
     model: string;
   };

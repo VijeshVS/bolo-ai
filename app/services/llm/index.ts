@@ -18,11 +18,13 @@ export interface LLMProcessor {
   formatStructuredText(rawText: string, intent: IntentLabel): Promise<TextFormattingResult>;
 }
 
-export type LLMType = "openai" | "anthropic" | "google" | "xai" | "groq" | "openrouter";
+export type LLMType = "openai" | "groq" | "openrouter";
+
+const LLM_TYPES: LLMType[] = ["openai", "groq", "openrouter"];
 
 export function getLLMType(): LLMType {
   const type = process.env.LLM_TYPE || "openai";
-  if (!["openai", "anthropic", "google", "xai", "groq", "openrouter"].includes(type)) {
+  if (!LLM_TYPES.includes(type as LLMType)) {
     throw new Error(`Unknown LLM type: ${type}`);
   }
   return type as LLMType;

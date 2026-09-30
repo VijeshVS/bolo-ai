@@ -514,37 +514,6 @@ const LLM_PROVIDERS = {
       { value: "gpt-4o", label: "gpt-4o ($2.5 / $10 per 1M tokens)" }
     ]
   },
-  anthropic: {
-    label: "Anthropic",
-    credentials: [
-      { name: "apiKey", label: "API Key", type: "password", required: false }
-    ],
-    models: [
-      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (default)" },
-      { value: "claude-3-opus-20250219", label: "Claude 3 Opus" },
-      { value: "claude-3-haiku-20250307", label: "Claude 3 Haiku" }
-    ]
-  },
-  google: {
-    label: "Google",
-    credentials: [
-      { name: "apiKey", label: "API Key", type: "password", required: false }
-    ],
-    models: [
-      { value: "gemini-2.5-pro", label: "gemini-2.5-pro (free with limits)" },
-      { value: "gemini-2.5-flash", label: "gemini-2.5-flash (free, default fast model)" },
-      { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (free, cheapest + fastest)" }
-    ]
-  },
-  xai: {
-    label: "XAI",
-    credentials: [
-      { name: "apiKey", label: "API Key", type: "password", required: false }
-    ],
-    models: [
-      { value: "grok-2-latest", label: "Grok 2 (default)" }
-    ]
-  },
   groq: {
     label: "Groq",
     credentials: [
@@ -589,14 +558,6 @@ const TRANSCRIBER_PROVIDERS = {
       { value: "gpt-4o-transcribe", label: "gpt-4o-transcribe ($0.006/min)" },
       { value: "gpt-4o-transcribe-diarize", label: "gpt-4o-transcribe-diarize ($0.006/min)" }
     ]
-  },
-  google: {
-    label: "Google Speech-to-Text",
-    credentials: [
-      { name: "projectId", label: "Project ID", type: "text", required: false },
-      { name: "credentialsPath", label: "Credentials File Path", type: "text", required: false, hint: "Path to service account JSON file" }
-    ],
-    models: []
   },
   groq: {
     label: "Groq Speech-to-Text",
@@ -737,9 +698,6 @@ async function saveSettings(closeWhenDone = true) {
       type: llmType,
       correctionEnabled,
       openai: existingSettings.llm.openai || { apiKey: "", model: "" },
-      anthropic: existingSettings.llm.anthropic || { apiKey: "", model: "" },
-      google: existingSettings.llm.google || { apiKey: "", model: "" },
-      xai: existingSettings.llm.xai || { apiKey: "", model: "" },
       groq: existingSettings.llm.groq || { apiKey: "", model: "" },
       openrouter: existingSettings.llm.openrouter || { apiKey: "", model: "" }
     };
@@ -771,7 +729,6 @@ async function saveSettings(closeWhenDone = true) {
       type: transcriberType,
       localWhisperEnabled,
       openai: existingSettings.transcriber.openai || { apiKey: "", model: "" },
-      google: existingSettings.transcriber.google || { projectId: "", credentialsPath: "" },
       groq: existingSettings.transcriber.groq || { apiKey: "", model: "" },
       whisper: existingSettings.transcriber.whisper || {}
     };

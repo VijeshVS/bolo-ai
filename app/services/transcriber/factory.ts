@@ -1,7 +1,6 @@
 import type { Transcriber } from "./index";
 import { getTranscriberType } from "./index";
 import { OpenAITranscriber } from "./openai";
-import { GoogleTranscriber } from "./google";
 import type { TranscriberConfig } from "../settingsService";
 import { WhisperCppTranscriber } from "./whisper";
 import type { LocalWhisperService } from "../localWhisperService";
@@ -28,11 +27,6 @@ export class TranscriberFactory {
           return new OpenAITranscriber(config.openai.apiKey, config.openai.model);
         }
         return new OpenAITranscriber();
-      case "google":
-        if (config?.google) {
-          return new GoogleTranscriber(config.google.projectId, config.google.credentialsPath);
-        }
-        return new GoogleTranscriber();
       case "groq":
         // Lazy import avoids editor/module-resolution hiccups when the provider file is added later.
         // eslint-disable-next-line @typescript-eslint/no-var-requires

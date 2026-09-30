@@ -7,6 +7,21 @@ files:
   - app/db/**/*
   - assets/**/*
   - package.json
+  # Only the compiled addon is needed at runtime; the C++ tree is build-only.
+  # Keep build/Release/smart-whisper.node: excluding it drops the addon entirely.
+  - '!node_modules/smart-whisper/whisper.cpp/**'
+  - '!node_modules/smart-whisper/build/Release/obj.target/**'
+  - '!node_modules/smart-whisper/build/Release/.deps/**'
+  - '!node_modules/smart-whisper/build/gyp-mac-tool/**'
+  - '!node_modules/smart-whisper/build/*.Makefile'
+  - '!node_modules/smart-whisper/build/*.mk'
+  - '!node_modules/smart-whisper/build/*.gypi'
+  - '!node_modules/smart-whisper/build/*.gyp'
+  - '!node_modules/smart-whisper/build/node_modules/**'
+  - '!node_modules/smart-whisper/src/**'
+  - '!node_modules/smart-whisper/scripts/**'
+  - '!node_modules/smart-whisper/binding.gyp'
+  - '!node_modules/smart-whisper/**/*.md'
 mac:
   category: public.app-category.productivity
   icon: assets/icon.png
@@ -17,3 +32,9 @@ mac:
   identity: null
 directories:
   output: release
+# Only English is shipped: the other ~50 locale.pak files add ~45MB.
+electronLanguages:
+  - en
+asar: true
+asarUnpack:
+  - node_modules/smart-whisper/build/Release/**
